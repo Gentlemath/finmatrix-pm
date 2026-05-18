@@ -81,8 +81,8 @@ class GARCHPredictor:
         if self.fitted_model is None:
             raise ValueError("Model must be fitted before prediction.")
 
-        forecast = self.fitted_model.forecast(horizon=horizon)
-        return forecast.variance.iloc[-1]
+        forecast = self.fitted_model.forecast(horizon=horizon)  # return forcast.mean, forcast.variance, and forcast.residual_variance
+        return forecast.variance.iloc[-1]  #last row of variance forecast for the horizon
 
     def predict_return(self, horizon: int = 1, method: str = 'zero') -> pd.Series:
         """
@@ -195,7 +195,21 @@ class GARCHPredictor:
 
 
 class ARIMAGARCHPredictor:
-    """ARIMA-GARCH model for return prediction."""
+    """
+    AR-style mean model with GARCH volatility for return prediction.
+
+    Despite the class name, the current implementation is not a full
+    ARIMA(p, d, q)-GARCH model. It uses ``arch_model(..., mean="ARX")``, so the
+    ``p`` value supplies autoregressive lags, while ``q`` is not used as a true
+    moving-average term. The fitted structure is closer to:
+
+        return_t = const + phi_1 * return_{t-1} + epsilon_t
+        epsilon_t = sigma_t * z_t
+        sigma_t^2 = omega + alpha_1 * epsilon_{t-1}^2 + beta_1 * sigma_{t-1}^2
+
+    A true ARMA/ARIMA-GARCH model would also include lagged innovation terms
+    such as ``theta_1 * epsilon_{t-1}`` in the mean equation.
+    """
 
     def __init__(self, arima_order: Tuple[int, int, int] = (1, 0, 1), garch_order: Tuple[int, int] = (1, 1)):
         """
@@ -259,6 +273,73 @@ class ARIMAGARCHPredictor:
         })
 
         return predictions
+    
+    def get_model_summary(self) -> str:
+        """Get detailed model summary."""
+        if self.fitted_model is None:
+            return "Model not fitted yet."
+
+        return str(self.fitted_model.summary())
+    
+    def get_parameters(self) -> pd.Series:
+        """Get fitted model parameters."""
+        if self.fitted_model is None:
+            raise ValueError("Model must be fitted before getting parameters.")
+
+        return self.fitted_model.params
+
+    def plot_volatility(self) -> None:
+        """Plot conditional volatility."""
+        if self.fitted_model is None:
+            raise ValueError("Model must be fitted before plotting.")
+
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            raise ImportError("matplotlib required for plotting.")
+
+        conditional_volatility = self.fitted_model.conditional_volatility
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(conditional_volatility.index, conditional_volatility.values,
+                label='Conditional Volatility', color='blue', linewidth=1.5)
+        ax.set_title('ARIMA-GARCH Conditional Volatility')
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Volatility')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        plt.tight_layout()
+        plt.show()
+    
+    def evaluate_model(self, test_returns: Optional[pd.Series] = None) -> Dict[str, float]:
+        """Evaluate model performance."""
+        if self.fitted_model is None:
+            raise ValueError("Model must be fitted before evaluation.")
+
+        evaluation = {}
+
+        # In-sample evaluation
+        evaluation['in_sample_log_likelihood'] = self.fitted_model.loglikelihood
+        evaluation['in_sample_aic'] = self.fitted_model.aic
+        evaluation['in_sample_bic'] = self.fitted_model.bic
+
+        # Standardized residuals should be approximately white noise
+        std_resid = (self.fitted_model.resid / self.fitted_model.conditional_volatility).dropna()
+        evaluation['std_resid_mean'] = std_resid.mean()
+        evaluation['std_resid_std'] = std_resid.std()
+        evaluation['std_resid_skew'] = std_resid.skew()
+        evaluation['std_resid_kurtosis'] = std_resid.kurtosis()
+
+        # Ljung-Box test for autocorrelation in squared residuals
+        try:
+            from statsmodels.stats.diagnostic import acorr_ljungbox
+            lb_test = acorr_ljungbox(std_resid**2, lags=[10], return_df=True)
+            evaluation['ljung_box_pvalue'] = lb_test['lb_pvalue'].iloc[0]
+        except ImportError:
+            evaluation['ljung_box_pvalue'] = None
+
+        return evaluation
+    
 
 
 class MarkovSwitchingGARCHPredictor:
