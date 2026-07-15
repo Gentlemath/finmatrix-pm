@@ -1,7 +1,6 @@
 """Return distribution analysis module."""
 
 import pandas as pd
-import numpy as np
 
 
 class DistributionAnalyzer:
@@ -70,7 +69,8 @@ class DistributionAnalyzer:
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib required for plotting. Install with `pip install matplotlib`.")
+            raise ImportError(
+                "matplotlib required for plotting. Install with `pip install matplotlib`.")
 
         fig, axes = plt.subplots(len(returns.columns), 1, figsize=(10, 4 * len(returns.columns)))
 
@@ -124,7 +124,11 @@ class DistributionAnalyzer:
             # Histogram
             ax_hist = axes[i][0]
             ax_hist.hist(data, bins=bins, alpha=0.7, color=color, edgecolor='black', linewidth=0.5)
-            ax_hist.set_title(f'{col} - Return Distribution', fontsize=14, fontweight='bold', pad=10)
+            ax_hist.set_title(
+                f'{col} - Return Distribution',
+                fontsize=14,
+                fontweight='bold',
+                pad=10)
             ax_hist.set_xlabel('Return', fontsize=12)
             ax_hist.set_ylabel('Frequency', fontsize=12)
             ax_hist.grid(True, alpha=0.3, linestyle='--')

@@ -1,19 +1,27 @@
-import numpy as np
 import pandas as pd
 from typing import Optional, Union
+
 
 class RegimeDetector:
     """Detect volatility regime changes from a time series of returns."""
 
-    def __init__(self, window: int = 30, threshold: float = 1.5, min_duration: int = 10, baseline_window: Optional[int] = None):
+    def __init__(
+            self,
+            window: int = 30,
+            threshold: float = 1.5,
+            min_duration: int = 10,
+            baseline_window: Optional[int] = None):
         """
         Initialize the regime detector.
 
         Args:
             window: Rolling window size for volatility calculation.
-            threshold: Number of baseline standard deviations above which volatility is considered high.
-            min_duration: Minimum number of consecutive periods required to keep a regime state.
-            baseline_window: Window size to compute a baseline volatility level. Defaults to 4x window.
+            threshold: Number of baseline standard deviations above which
+                volatility is considered high.
+            min_duration: Minimum number of consecutive periods required to
+                keep a regime state.
+            baseline_window: Window size to compute a baseline volatility level.
+                Defaults to 4x window.
         """
         self.window = window
         self.threshold = threshold
@@ -36,7 +44,10 @@ class RegimeDetector:
 
         return returns
 
-    def compute_rolling_volatility(self, returns: Union[pd.Series, pd.DataFrame], window: Optional[int] = None) -> pd.Series:
+    def compute_rolling_volatility(self,
+                                   returns: Union[pd.Series,
+                                                  pd.DataFrame],
+                                   window: Optional[int] = None) -> pd.Series:
         """Compute rolling volatility for the input returns."""
         returns = self._validate_input(returns)
         window = window or self.window
@@ -99,7 +110,8 @@ class RegimeDetector:
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib required for plotting. Install with `pip install matplotlib`.")
+            raise ImportError(
+                "matplotlib required for plotting. Install with `pip install matplotlib`.")
 
         returns = self._validate_input(returns)
         detection = self.detect_regimes(
@@ -112,13 +124,29 @@ class RegimeDetector:
 
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 9), sharex=True)
 
-        ax1.plot(returns.index, returns.values, label=returns.name or "Returns", color="blue", linewidth=1)
+        ax1.plot(
+            returns.index,
+            returns.values,
+            label=returns.name or "Returns",
+            color="blue",
+            linewidth=1)
         ax1.set_ylabel("Returns")
         ax1.set_title("Returns and Detected Volatility Regimes")
         ax1.grid(True, alpha=0.3)
 
-        ax2.plot(detection.index, detection["rolling_volatility"], label="Rolling Volatility", color="orange", linewidth=1.5)
-        ax2.plot(detection.index, detection["threshold"], label="Threshold", color="red", linestyle="--", linewidth=1)
+        ax2.plot(
+            detection.index,
+            detection["rolling_volatility"],
+            label="Rolling Volatility",
+            color="orange",
+            linewidth=1.5)
+        ax2.plot(
+            detection.index,
+            detection["threshold"],
+            label="Threshold",
+            color="red",
+            linestyle="--",
+            linewidth=1)
 
         high_regime = detection["regime"] == 1
         ax2.fill_between(

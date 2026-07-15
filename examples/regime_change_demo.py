@@ -1,21 +1,16 @@
-from pathlib import Path
-import sys
-
 import pandas as pd
-import yfinance as yf
 
+from portfolio_management.dataloader import create_data_loader
+from portfolio_management.tsm import RegimeDetector as rd
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
-
-from tsm import RegimeDetector  as rd
 
 def sp500_example(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    """Load S&P 500 price series for demonstration."""
-
-    prices = yf.download("^GSPC", start=start, end=end, progress=False)[["Close"]]
-    prices = prices.rename(columns={"Close": "SP500"})
+    """Load the S&P 500 price series via the yfinance data loader."""
+    loader = create_data_loader("yfinance")
+    prices = loader.get_prices("^GSPC", start=start, end=end)
+    prices.columns = ["SP500"]  # canonical panel: one column per symbol
     return prices
+
 
 def main() -> None:
     start = pd.Timestamp("2020-05-12")

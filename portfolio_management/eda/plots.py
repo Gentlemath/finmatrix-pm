@@ -1,5 +1,6 @@
 """Price and return visualization module."""
 
+import numpy as np
 import pandas as pd
 
 
@@ -19,7 +20,7 @@ class PlotAnalyzer:
             DataFrame of returns.
         """
         if method == "log":
-            return prices.pct_change().apply(lambda x: (1 + x).apply(__import__('numpy').log))
+            return np.log(prices / prices.shift(1))
         elif method == "simple":
             return prices.pct_change()
         else:
@@ -50,7 +51,8 @@ class PlotAnalyzer:
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib required for plotting. Install with `pip install matplotlib`.")
+            raise ImportError(
+                "matplotlib required for plotting. Install with `pip install matplotlib`.")
 
         fig, ax = plt.subplots(figsize=(12, 6))
         for col in prices.columns:
@@ -76,7 +78,8 @@ class PlotAnalyzer:
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib required for plotting. Install with `pip install matplotlib`.")
+            raise ImportError(
+                "matplotlib required for plotting. Install with `pip install matplotlib`.")
 
         fig, ax = plt.subplots(figsize=(12, 6))
         for col in returns.columns:
@@ -91,7 +94,8 @@ class PlotAnalyzer:
         plt.show()
 
     @staticmethod
-    def plot_overview(prices: pd.DataFrame, returns: pd.DataFrame, title: str = "Portfolio Overview") -> None:
+    def plot_overview(prices: pd.DataFrame, returns: pd.DataFrame,
+                      title: str = "Portfolio Overview") -> None:
         """
         Plot comprehensive overview with prices, returns, and cumulative returns in subplots.
 
@@ -103,7 +107,8 @@ class PlotAnalyzer:
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib required for plotting. Install with `pip install matplotlib`.")
+            raise ImportError(
+                "matplotlib required for plotting. Install with `pip install matplotlib`.")
 
         # Set a clean style
         plt.style.use('default')

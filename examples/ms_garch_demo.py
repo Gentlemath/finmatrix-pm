@@ -1,28 +1,23 @@
 """Compare standard GARCH and Markov-switching GARCH on S&P 500 returns."""
 
-from pathlib import Path
-import sys
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
-# Ensure src is on the import path when running from the repository root.
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
-
-from tsm import GARCHPredictor, MarkovSwitchingGARCHPredictor
+from portfolio_management.dataloader import create_data_loader
+from portfolio_management.tsm import GARCHPredictor, MarkovSwitchingGARCHPredictor
 
 
 def load_returns(start: str = "2020-01-01", end: str = "2026-05-12") -> pd.Series:
-    """Load daily S&P 500 percentage returns."""
-    prices = yf.download("^GSPC", start=start, end=end, progress=False)[["Close"]]
-    prices = prices.rename(columns={"Close": "SP500"})
+    """Load daily S&P 500 percentage returns via the yfinance data loader."""
+    loader = create_data_loader("yfinance")
+    prices = loader.get_prices("^GSPC", start=start, end=end)
+    prices.columns = ["SP500"]  # canonical panel: one column per symbol
     return prices["SP500"].pct_change().dropna() * 100
 
 
-def fit_full_sample_models(returns: pd.Series) -> tuple[GARCHPredictor, MarkovSwitchingGARCHPredictor]:
+def fit_full_sample_models(
+        returns: pd.Series) -> tuple[GARCHPredictor, MarkovSwitchingGARCHPredictor]:
     """Fit both models on the full sample."""
     garch = GARCHPredictor(p=1, q=1, mean_model="Constant")
     ms_garch = MarkovSwitchingGARCHPredictor(
@@ -92,9 +87,13 @@ def walk_forward_comparison(
 
     results = pd.DataFrame(rows).set_index("date")
     results["garch_abs_error"] = (results["garch_forecast"] - results["realized_volatility"]).abs()
-    results["ms_garch_abs_error"] = (results["ms_garch_forecast"] - results["realized_volatility"]).abs()
+    results["ms_garch_abs_error"] = (
+        results["ms_garch_forecast"] -
+        results["realized_volatility"]).abs()
     results["garch_sq_error"] = (results["garch_forecast"] - results["realized_volatility"]) ** 2
-    results["ms_garch_sq_error"] = (results["ms_garch_forecast"] - results["realized_volatility"]) ** 2
+    results["ms_garch_sq_error"] = (
+        results["ms_garch_forecast"] -
+        results["realized_volatility"]) ** 2
 
     print(results[["realized_volatility", "garch_forecast", "ms_garch_forecast"]].round(4))
     print("\nMean absolute error:")
@@ -169,7 +168,9 @@ def plot_results(
 
 def main() -> None:
     returns = load_returns()
-    print(f"Loaded {len(returns)} daily returns from {returns.index.min().date()} to {returns.index.max().date()}")
+    print(
+        f"Loaded {len(returns)} daily returns from "
+        f"{returns.index.min().date()} to {returns.index.max().date()}")
 
     _, ms_garch = fit_full_sample_models(returns)
     walk_forward_results = walk_forward_comparison(returns)
