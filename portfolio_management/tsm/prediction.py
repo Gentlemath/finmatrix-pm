@@ -39,7 +39,8 @@ class GARCHPredictor:
         try:
             from arch import arch_model
         except ImportError:
-            raise ImportError("arch library required for GARCH modeling. Install with `pip install arch`.")
+            raise ImportError(
+                "arch library required for GARCH modeling. Install with `pip install arch`.")
 
         # Create the model
         self.model = arch_model(
@@ -81,8 +82,9 @@ class GARCHPredictor:
         if self.fitted_model is None:
             raise ValueError("Model must be fitted before prediction.")
 
-        forecast = self.fitted_model.forecast(horizon=horizon)  # return forcast.mean, forcast.variance, and forcast.residual_variance
-        return forecast.variance.iloc[-1]  #last row of variance forecast for the horizon
+        # return forcast.mean, forcast.variance, and forcast.residual_variance
+        forecast = self.fitted_model.forecast(horizon=horizon)
+        return forecast.variance.iloc[-1]  # last row of variance forecast for the horizon
 
     def predict_return(self, horizon: int = 1, method: str = 'zero') -> pd.Series:
         """
@@ -211,7 +213,8 @@ class ARIMAGARCHPredictor:
     such as ``theta_1 * epsilon_{t-1}`` in the mean equation.
     """
 
-    def __init__(self, arima_order: Tuple[int, int, int] = (1, 0, 1), garch_order: Tuple[int, int] = (1, 1)):
+    def __init__(self, arima_order: Tuple[int, int, int] = (
+            1, 0, 1), garch_order: Tuple[int, int] = (1, 1)):
         """
         Initialize ARIMA-GARCH predictor.
 
@@ -273,14 +276,14 @@ class ARIMAGARCHPredictor:
         })
 
         return predictions
-    
+
     def get_model_summary(self) -> str:
         """Get detailed model summary."""
         if self.fitted_model is None:
             return "Model not fitted yet."
 
         return str(self.fitted_model.summary())
-    
+
     def get_parameters(self) -> pd.Series:
         """Get fitted model parameters."""
         if self.fitted_model is None:
@@ -310,7 +313,7 @@ class ARIMAGARCHPredictor:
         ax.legend()
         plt.tight_layout()
         plt.show()
-    
+
     def evaluate_model(self, test_returns: Optional[pd.Series] = None) -> Dict[str, float]:
         """Evaluate model performance."""
         if self.fitted_model is None:
@@ -339,7 +342,6 @@ class ARIMAGARCHPredictor:
             evaluation['ljung_box_pvalue'] = None
 
         return evaluation
-    
 
 
 class MarkovSwitchingGARCHPredictor:
@@ -411,7 +413,8 @@ class MarkovSwitchingGARCHPredictor:
         try:
             from arch import arch_model
         except ImportError:
-            raise ImportError("arch library required for GARCH modeling. Install with `pip install arch`.")
+            raise ImportError(
+                "arch library required for GARCH modeling. Install with `pip install arch`.")
 
         try:
             from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
@@ -530,11 +533,11 @@ class MarkovSwitchingGARCHPredictor:
             mean_forecast = 0.0
         elif method == "regime_weighted":
             transition = self.get_transition_matrix().to_numpy()
-            current_probabilities = self.get_regime_probabilities(smoothed=False).iloc[-1].to_numpy(dtype=float)
+            current_probabilities = self.get_regime_probabilities(
+                smoothed=False).iloc[-1].to_numpy(dtype=float)
             next_probabilities = transition @ current_probabilities
-            regime_means = np.array(
-                [self.regime_models[regime].params.get("mu", 0.0) for regime in range(self.k_regimes)]
-            )
+            regime_means = np.array([self.regime_models[regime].params.get("mu", 0.0)
+                                     for regime in range(self.k_regimes)])
             mean_forecast = float(next_probabilities @ regime_means)
         else:
             raise ValueError(f"Unknown method: {method}")

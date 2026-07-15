@@ -5,34 +5,55 @@ A comprehensive portfolio management system for financial data exploration, anal
 ## Project Structure
 
 ```
-src/
-  ├── dataloader/          # Data loading from multiple sources
-  │   ├── data_loader.py   # Loaders: yfinance, Alpha Vantage, FRED, AKShare, BaoStock, Tushare
+portfolio_management/          # The installable Python package (import name)
+  ├── __init__.py              # Exports; loads a local .env on import
+  ├── config.py                # .env loading (python-dotenv)
+  ├── dataloader/              # Data loading from multiple sources
+  │   ├── data_loader.py       # Loaders: yfinance, Alpha Vantage, FRED, AKShare, BaoStock, Tushare
+  │   ├── wrds_loader.py       # WRDS / CRSP CIZ loader (CRSP, Compustat, CCM, S&P 500 universe)
+  │   ├── base.py              # BaseLoader + canonical price-panel normalization
   │   └── __init__.py
-  ├── eda/                 # Exploratory Data Analysis
-  │   ├── __init__.py
-  │   ├── plots.py         # Price, return, and cumulative return visualization
-  │   ├── distribution.py  # Return distribution analysis
-  │   └── tsa.py           # Time series analysis: stationarity, ACF/PACF, autocorrelation testing
-  └── tsm/                 # Time Series Modeling
-      ├── __init__.py
-      └── prediction.py    # GARCH and ARIMA-GARCH models for volatility and return prediction
-examples/
-  ├── eda_demo.py          # Complete EDA demonstration
-  └── garch_demo.py        # GARCH modeling demonstration
-tests/                      # Unit tests
-data/                       # Data storage directory
-.github/workflows/
-  └── ci.yml               # GitHub Actions CI configuration
+  ├── eda/                     # Exploratory Data Analysis
+  │   ├── plots.py             # Price, return, and cumulative return visualization
+  │   ├── distribution.py      # Return distribution analysis (VaR, CVaR, Q-Q)
+  │   └── tsa.py               # Stationarity (ADF/KPSS), ACF/PACF testing
+  ├── tsm/                     # Time Series Modeling
+  │   ├── prediction.py        # GARCH, AR-GARCH, and Markov-switching GARCH predictors
+  │   └── regime_detector.py   # Rule-based volatility regime detection
+  └── strategy/                # Portfolio strategies / backtesting
+      ├── momentum.py          # Configurable cross-sectional momentum strategy
+      ├── universe.py          # Point-in-time membership + panel builders
+      └── performance.py       # Return stats, CAPM, turnover, transaction costs
+examples/                      # eda / garch / ms_garch / regime_change / wrds /
+                               #   momentum / cache_wrds_data demo scripts
+tests/                         # Unit tests (pytest; network-free, synthetic data)
+docs/
+  └── momentum-research-log.md # Findings from the momentum backtests
+local_data/                    # Local (gitignored) data — e.g. cached CRSP pulls
+pyproject.toml                 # Packaging, dependencies/extras, pytest config
+setup.cfg                      # flake8 configuration
+CHANGELOG.md
+.github/workflows/ci.yml       # GitHub Actions CI
 ```
 
 ## Getting Started
 
 ### Installation
 
+Install the package in editable mode so `import portfolio_management` works from
+anywhere in the environment:
+
 ```bash
-pip install -r requirements.txt
+pip install -e .            # core (data-analysis + modeling) dependencies
+pip install -e ".[us]"      # add US data providers (yfinance, Alpha Vantage, FRED)
+pip install -e ".[china]"   # add China data providers (AKShare, BaoStock, Tushare)
+pip install -e ".[dev]"     # add test/lint tooling (pytest, flake8)
+pip install -e ".[all]"     # everything
 ```
+
+Data-provider SDKs are optional extras because the loaders import them lazily —
+you only need the extras for the sources you actually use. The demos in
+`examples/` use `[us]` (yfinance).
 
 ### Version Control
 
@@ -55,6 +76,7 @@ git commit -m "message"  # Commit changes
 - **AKShare** — China market data
 - **BaoStock** — China A-share backup data
 - **Tushare** — China equity fundamentals
+- **WRDS** — Academic research data (CRSP, Compustat, CRSP-Compustat Merged; raw SQL for IBES/TAQ/etc.)
 
 ### Configuration
 
@@ -69,10 +91,10 @@ export TUSHARE_TOKEN="your_token"
 ### Data Loader Examples
 
 ```python
-from src.dataloader import create_data_loader
+from portfolio_management.dataloader import create_data_loader
 
 # CSV data
-csv_loader = create_data_loader("csv", data_dir="data")
+csv_loader = create_data_loader("csv", data_dir="local_data")
 df = csv_loader.load_csv("portfolio.csv")
 
 # yfinance: price data
@@ -88,7 +110,34 @@ fundamentals = av_loader.get_fundamentals("MSFT")
 # FRED: macroeconomic data
 fred_loader = create_data_loader("fred")
 gdp = fred_loader.get_series("GDP", start_date="2020-01-01")
+
+# WRDS: academic research data (requires a WRDS account; pip install -e ".[wrds]")
+# CRSP CIZ-native (crsp.msf_v2 / crsp.msp500list_v2); mthret includes delisting.
+wrds_loader = create_data_loader("wrds")            # WRDS_USERNAME env or username=...
+crsp = wrds_loader.get_crsp_monthly(permnos=[14593], start="2020-01-01", end="2020-12-31")
+funda = wrds_loader.get_compustat_annual(tickers=["AAPL"])
+ibes = wrds_loader.raw_sql("select * from ibes.detu_epsus limit 100")  # escape hatch
+wrds_loader.close()
 ```
+
+### Canonical price panel
+
+Price-capable loaders (`yfinance` and `wrds`) share a `get_prices()` method that
+returns a **canonical price panel** — a `DataFrame` indexed by date with one
+column per symbol. This is the exact shape the EDA and TSM modules consume, so
+data from different sources is interchangeable (yfinance returns adjusted close;
+WRDS returns a split/dividend-adjusted total-return index):
+
+```python
+prices = create_data_loader("yfinance").get_prices(["AAPL", "MSFT"],
+                                                    start="2024-01-01", end="2025-01-01")
+returns = PlotAnalyzer.compute_returns(prices, method="log")   # plugs straight in
+```
+
+> **WRDS note:** the loader speaks the CRSP **CIZ** format natively (`crsp.msf_v2`,
+> `crsp.msp500list_v2`); the legacy SIZ tables were frozen by CRSP in 2024. The
+> CIZ monthly + membership schema was validated live; table/column names are
+> editable via the `CIZ_*` constants, and every method has a `raw_sql()` fallback.
 
 ## Exploratory Data Analysis (EDA)
 
@@ -148,8 +197,30 @@ The TSM module provides advanced time series models for volatility and return pr
 - Conditional volatility plotting
 
 **ARIMAGARCHPredictor**
-- Combined ARIMA-GARCH models for return prediction
-- Handles both mean and volatility dynamics
+- AR-mean + GARCH model for joint mean/volatility dynamics
+- Note: this is an AR-GARCH model, not a full ARIMA(p, d, q)-GARCH — the mean
+  equation has autoregressive terms but no moving-average innovation terms.
+  See the class docstring for the exact fitted structure.
+
+**MarkovSwitchingGARCHPredictor**
+- Two-stage regime-aware volatility model
+- Fits latent volatility regimes (statsmodels `MarkovRegression`), then a
+  separate GARCH per regime
+- Produces transition-probability-weighted volatility and return forecasts
+
+**RegimeDetector** (`portfolio_management/tsm/regime_detector.py`)
+- Rule-based (non-model) volatility-regime detector
+- Rolling volatility vs. a baseline threshold, with run-length smoothing
+- Flags regime-change points and plots detected regimes
+
+### Running the TSM Demos
+
+```bash
+cd examples
+python garch_demo.py          # GARCH / AR-GARCH
+python ms_garch_demo.py       # standard vs. Markov-switching GARCH
+python regime_change_demo.py  # rule-based regime detection
+```
 
 ### Running the GARCH Demo
 
@@ -197,8 +268,8 @@ pytest tests/ --maxfail=1 --disable-warnings -q
 ### Code Quality
 
 ```bash
-flake8 src/ examples/
-python -m py_compile src/**/*.py
+flake8 portfolio_management/ tests/ examples/
+python -m py_compile portfolio_management/**/*.py
 ```
 
 ### CI/CD
@@ -209,15 +280,85 @@ Automated testing runs on:
 
 See `.github/workflows/ci.yml` for details.
 
-## Next Steps
+## Strategy / Backtesting
 
-This starter provides a solid foundation for:
+### MomentumStrategy
 
-- **Advanced modeling**: GARCH, VAR, regime-switching models
-- **Factor analysis**: PCA, factor models on multiple assets
-- **Portfolio optimization**: Mean-variance, risk parity
-- **Backtesting**: Strategy testing on historical data
-- **Machine Learning**: Predictive models for returns/volatility
+Cross-sectional momentum with a **survivorship-bias-free** universe when fed
+CRSP data via WRDS. Everything is configurable:
+
+- `n_quantiles` — 10 for deciles, 5 for quintiles
+- `long_short` — `True` for long-winners/short-losers, `False` for long-only top bucket
+- `weighting` — `"equal"` or `"value"` (market-cap)
+- `lookback` / `gap` — signal window and skip month (default 11-month return, skip 1)
+
+```python
+from portfolio_management.dataloader import create_data_loader
+from portfolio_management.strategy import MomentumStrategy
+
+wrds = create_data_loader("wrds")
+# One call: point-in-time membership + delisting-adjusted CIZ returns -> panels.
+returns, membership, caps = wrds.get_sp500_universe(start="2005-01-01", end="2023-12-31")
+
+strat = MomentumStrategy(n_quantiles=10, long_short=True, weighting="value")
+result, weights = strat.backtest(returns, membership=membership,
+                                 market_caps=caps, return_weights=True)
+```
+
+### Performance analytics
+
+`strategy/performance.py` scores a return series honestly — so market beta isn't
+mistaken for alpha:
+
+```python
+from portfolio_management.strategy import (
+    performance_summary, capm, turnover, cap_weighted_return)
+
+benchmark = cap_weighted_return(returns, caps, membership)   # cap-weighted S&P 500
+performance_summary(result["strategy"], rf=0.0)              # excess Sharpe, max drawdown
+capm(result["strategy"], benchmark, rf=0.0)                  # beta, alpha, info ratio
+turnover(weights)                                            # one-way turnover
+
+from portfolio_management.strategy import apply_costs
+net = apply_costs(result["strategy"], weights, cost=0.0010)  # subtract 10 bps/trade
+performance_summary(net, rf=0.0)                             # net of transaction costs
+```
+
+For a high-turnover strategy, costs are decisive — `apply_costs` charges
+`cost × Σ|Δw|` (dollars traded, both sides) at each rebalance, so you can sweep
+cost levels and see where the edge disappears.
+
+Use `rf=0` for a self-financing long-short book; pass a real risk-free rate for a
+long-only book (otherwise its Sharpe is inflated by the risk-free rate).
+
+**Why WRDS, not yfinance:** yfinance only knows *today's* index members and drops
+delisted stocks, which biases momentum backtests upward. CRSP provides
+point-in-time S&P 500 membership (`crsp.msp500list_v2`) and returns that already
+include the delisting return (`crsp.msf_v2`), removing both leaks. The strategy
+itself is data-source agnostic — it operates on panels, so it is fully
+unit-tested on synthetic data.
+
+For what the backtests reveal about momentum across eras (regime dependence, the
+2009 crash, long-only ≈ market + a fading tilt, cost sensitivity), see
+[`docs/momentum-research-log.md`](docs/momentum-research-log.md).
+
+## Roadmap
+
+The toolkit now spans **data → EDA → time-series modeling → strategy/backtesting**,
+with a survivorship-bias-free WRDS/CRSP data path. Delivered so far: multi-source
+data loading, EDA, GARCH-family + regime models, a configurable momentum strategy,
+and honest performance analytics (excess Sharpe, CAPM, turnover, transaction costs).
+
+Candidate directions next:
+
+- **Portfolio optimization**: mean-variance, risk parity, allocation
+- **More strategies / a shared backtest engine**: reuse the panel + cost machinery
+- **Momentum crash control**: Daniel–Moskowitz volatility-scaling (tames the 2009 −65% year)
+- **Factor analysis**: PCA and factor models across multiple assets
+- **Extended modeling / ML**: VAR, more regime variants, predictive models
+
+See [`docs/momentum-research-log.md`](docs/momentum-research-log.md) for what the
+momentum backtests actually taught us about the strategy.
 
 ## References
 

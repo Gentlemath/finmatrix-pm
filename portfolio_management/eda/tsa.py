@@ -1,5 +1,5 @@
-## This is for time series analysis of returns.
-## Mainly for stationarity tests, autocorrelation, and seasonality analysis.
+# This is for time series analysis of returns.
+# Mainly for stationarity tests, autocorrelation, and seasonality analysis.
 
 import warnings
 
@@ -10,17 +10,20 @@ from statsmodels.tools.sm_exceptions import InterpolationWarning
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 import matplotlib.pyplot as plt
 
+
 class TimeSeriesAnalyzer:
     """Analyze time series properties of return data."""
 
     @staticmethod
     def test_stationarity(series: pd.Series) -> dict:
         """Perform ADF and KPSS tests for stationarity."""
-        adf_result = adfuller(series.dropna())     ## Augmented Dickey-Fuuller test for unit root (H0: non-stationary)
+        adf_result = adfuller(
+            series.dropna())  # Augmented Dickey-Fuuller test for unit root (H0: non-stationary)
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter('always', InterpolationWarning)
-            kpss_result = kpss(series.dropna(), regression='c')   ## Test for stationarity around a constant( H0: stationary)
+            # Test for stationarity around a constant( H0: stationary)
+            kpss_result = kpss(series.dropna(), regression='c')
 
         kpss_note = None
         for warning_item in caught:
@@ -65,14 +68,22 @@ class TimeSeriesAnalyzer:
         pacf_vals = pacf(data, nlags=lags)
 
         # Standard error approximation for significance
-        se = 1 / np.sqrt(n)  # standard error for autocorrelation coefficients under null hypothesis of no autocorrelation
+        # standard error for autocorrelation coefficients under null hypothesis of
+        # no autocorrelation
+        se = 1 / np.sqrt(n)
 
         # Critical value for two-tailed test
         critical_value = stats.norm.ppf(1 - alpha / 2) * se
 
         # Find significant lags (excluding lag 0)
-        acf_significant = [lag for lag in range(1, len(acf_vals)) if abs(acf_vals[lag]) > critical_value]
-        pacf_significant = [lag for lag in range(1, len(pacf_vals)) if abs(pacf_vals[lag]) > critical_value]
+        acf_significant = [
+            lag for lag in range(
+                1, len(acf_vals)) if abs(
+                acf_vals[lag]) > critical_value]
+        pacf_significant = [
+            lag for lag in range(
+                1, len(pacf_vals)) if abs(
+                pacf_vals[lag]) > critical_value]
 
         return {
             'acf_significant_lags': acf_significant,

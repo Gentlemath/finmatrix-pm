@@ -1,24 +1,18 @@
 """Example GARCH modeling script for volatility prediction."""
 
-from pathlib import Path
-import sys
-
-import pandas as pd
-import yfinance as yf
 import matplotlib.pyplot as plt
+import pandas as pd
 
-# Ensure src is on the import path when running from the repository root.
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
-
-from tsm import ARIMAGARCHPredictor, GARCHPredictor
+from portfolio_management.dataloader import create_data_loader
+from portfolio_management.tsm import ARIMAGARCHPredictor, GARCHPredictor
 
 
 def main() -> None:
-    # Load S&P 500 data
+    # Load S&P 500 data through the yfinance data loader
     print("Loading S&P 500 data...")
-    prices = yf.download("^GSPC", start="2020-01-01", end="2026-05-12", progress=False)[["Close"]]
-    prices = prices.rename(columns={"Close": "SP500"})
+    loader = create_data_loader("yfinance")
+    prices = loader.get_prices("^GSPC", start="2020-01-01", end="2026-05-12")
+    prices.columns = ["SP500"]  # canonical panel: one column per symbol
 
     # Calculate returns
     returns = (prices.pct_change().dropna() * 100)  # Convert to percentage
@@ -49,11 +43,11 @@ def main() -> None:
 
     # Get model parameters
     params = garch.get_parameters()
-    print(f"\nGARCH Parameters:")
+    print("\nGARCH Parameters:")
     print(params)
 
     params_arima_garch = arima_garch.get_parameters()
-    print(f"\nARIMA-GARCH Parameters:")
+    print("\nARIMA-GARCH Parameters:")
     print(params_arima_garch)
 
     # Predict next day volatility and return
@@ -77,7 +71,9 @@ def main() -> None:
     print(f"Standardized Residuals Skew: {evaluation['std_resid_skew']:.4f}")
     print(f"Standardized Residuals Kurtosis: {evaluation['std_resid_kurtosis']:.4f}")
     if evaluation['ljung_box_pvalue'] is not None:
-        print(f"Ljung-Box p-value (autocorrelation in squared residuals): {evaluation['ljung_box_pvalue']:.4f}")
+        print(
+            f"Ljung-Box p-value (autocorrelation in squared residuals): "
+            f"{evaluation['ljung_box_pvalue']:.4f}")
 
     evaluation_arima_garch = arima_garch.evaluate_model()
     print("\nARIMA-GARCH Evaluation:")
@@ -86,7 +82,9 @@ def main() -> None:
     print(f"Standardized Residuals Skew: {evaluation_arima_garch['std_resid_skew']:.4f}")
     print(f"Standardized Residuals Kurtosis: {evaluation_arima_garch['std_resid_kurtosis']:.4f}")
     if evaluation_arima_garch['ljung_box_pvalue'] is not None:
-        print(f"Ljung-Box p-value (autocorrelation in squared residuals): {evaluation_arima_garch['ljung_box_pvalue']:.4f}")
+        print(
+            f"Ljung-Box p-value (autocorrelation in squared residuals): "
+            f"{evaluation_arima_garch['ljung_box_pvalue']:.4f}")
 
     # Plot conditional volatility comparison
     print("\nPlotting conditional volatility comparison...")
@@ -110,7 +108,6 @@ def main() -> None:
     ax.legend()
     plt.tight_layout()
     plt.show()
-
 
 
 if __name__ == "__main__":

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "portfolio-management"
+version = "0.1.0"
+description = "Quant toolkit for financial data loading, EDA, and time-series modeling"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Gentlemath" }]
+# Core dependencies needed to import and use the analysis/modeling modules.
+dependencies = [
+    "pandas>=1.5.0",
+    "numpy>=1.24.0",
+    "matplotlib>=3.5.0",
+    "scipy>=1.9.0",
+    "statsmodels>=0.14.0",
+    "arch>=5.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+# Data-provider SDKs are optional: the loaders import them lazily, so you only
+# need the extras for the sources you actually use.
+[project.optional-dependencies]
+us = ["yfinance>=0.2.0", "alpha_vantage>=2.3.1", "fredapi>=0.4.0"]
+china = ["akshare>=1.0.0", "baostock>=0.2.8", "tushare>=1.2.0"]
+wrds = ["wrds>=3.1.0"]
+dev = ["pytest>=8.0", "pytest-cov", "flake8"]
+all = ["portfolio-management[us,china,wrds,dev]"]
+
+[tool.setuptools.packages.find]
+include = ["portfolio_management*"]
+
+# Pytest configuration (previously in pytest.ini).
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # Plot smoke tests call plt.show() under the non-interactive Agg backend.
+    "ignore:FigureCanvasAgg is non-interactive:UserWarning",
+]

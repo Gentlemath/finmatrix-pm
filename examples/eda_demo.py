@@ -1,24 +1,16 @@
 """Example exploratory data analysis script for portfolio management."""
 
-from pathlib import Path
-import sys
-
-import numpy as np
 import pandas as pd
-import yfinance as yf
 
-# Ensure src is on the import path when running from the repository root.
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
-
-from eda import DistributionAnalyzer, PlotAnalyzer, TimeSeriesAnalyzer
+from portfolio_management.dataloader import create_data_loader
+from portfolio_management.eda import DistributionAnalyzer, PlotAnalyzer, TimeSeriesAnalyzer
 
 
 def sp500_example(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    """Load S&P 500 price series for demonstration."""
-
-    prices = yf.download("^GSPC", start=start, end=end, progress=False)[["Close"]]
-    prices = prices.rename(columns={"Close": "SP500"})
+    """Load the S&P 500 price series via the yfinance data loader."""
+    loader = create_data_loader("yfinance")
+    prices = loader.get_prices("^GSPC", start=start, end=end)
+    prices.columns = ["SP500"]  # canonical panel: one column per symbol
     return prices
 
 
@@ -42,7 +34,6 @@ def main() -> None:
 
     DistributionAnalyzer.plot_distribution_overview(returns, bins=40)
 
-
     # Time series analysis
     print("\n=== Stationarity tests ===")
     tsa = TimeSeriesAnalyzer()
@@ -61,16 +52,27 @@ def main() -> None:
     tsa.plot_acf_pacf(returns["SP500"], lags=30)
 
     # Test for significant autocorrelation
-    autocorr_results = tsa.test_autocorrelation(returns["SP500"], lags=30, alpha = 0.01)
-    print(f"\nSignificant ACF lags (alpha={autocorr_results['alpha']}): {autocorr_results['acf_significant_lags']}")
-    print(f"Significant PACF lags (alpha={autocorr_results['alpha']}): {autocorr_results['pacf_significant_lags']}")
+    autocorr_results = tsa.test_autocorrelation(returns["SP500"], lags=30, alpha=0.01)
+    print(
+        f"\nSignificant ACF lags (alpha={autocorr_results['alpha']}): "
+        f"{autocorr_results['acf_significant_lags']}")
+    print(
+        f"Significant PACF lags (alpha={autocorr_results['alpha']}): "
+        f"{autocorr_results['pacf_significant_lags']}")
 
     print("\n=== ACF and PACF plots of absolute log returns ===")
     tsa.plot_acf_pacf(returns["SP500"].abs(), lags=30)
 
     autocorr_abs_results = tsa.test_autocorrelation(returns["SP500"].abs(), lags=30)
-    print(f"\nSignificant ACF lags for absolute returns (alpha={autocorr_abs_results['alpha']}): {autocorr_abs_results['acf_significant_lags']}")
-    print(f"Significant PACF lags for absolute returns (alpha={autocorr_abs_results['alpha']}): {autocorr_abs_results['pacf_significant_lags']}")
+    print(
+        f"\nSignificant ACF lags for absolute returns "
+        f"(alpha={autocorr_abs_results['alpha']}): "
+        f"{autocorr_abs_results['acf_significant_lags']}")
+    print(
+        f"Significant PACF lags for absolute returns "
+        f"(alpha={autocorr_abs_results['alpha']}): "
+        f"{autocorr_abs_results['pacf_significant_lags']}")
+
 
 if __name__ == "__main__":
     main()

@@ -2,9 +2,11 @@
 
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Sequence, Union
 
 import pandas as pd
+
+from .base import BaseLoader, as_symbol_list, flatten_yfinance
 
 
 class CSVDataLoader:
@@ -32,7 +34,7 @@ class CSVDataLoader:
         return pd.Series([p.name for p in self.data_dir.glob("*.csv")])
 
 
-class YFinanceLoader:
+class YFinanceLoader(BaseLoader):
     """Load price and simple fundamentals using yfinance."""
 
     def __init__(self):
@@ -65,6 +67,18 @@ class YFinanceLoader:
             threads=True,
         )
 
+    def get_prices(
+        self,
+        symbols: Union[str, Sequence[str]],
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Return a canonical price panel (adjusted close) for one or more tickers."""
+        tickers = as_symbol_list(symbols)
+        raw = self.history(" ".join(tickers), start=start, end=end)
+        # auto_adjust=True (the history() default) already yields adjusted prices.
+        return flatten_yfinance(raw, field="Close")
+
     def get_info(self, ticker: str) -> pd.DataFrame:
         """Get available fundamental info for a ticker."""
         ticker_obj = self.yf.Ticker(ticker)
@@ -95,14 +109,16 @@ class AlphaVantageLoader:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get("ALPHAVANTAGE_API_KEY")
         if not self.api_key:
-            raise ValueError("Alpha Vantage requires ALPHAVANTAGE_API_KEY in environment or api_key argument.")
+            raise ValueError(
+                "Alpha Vantage requires ALPHAVANTAGE_API_KEY in environment or api_key argument.")
 
         try:
             from alpha_vantage.timeseries import TimeSeries
             from alpha_vantage.fundamentaldata import FundamentalData
         except ImportError as exc:
             raise ImportError(
-                "alpha_vantage is required for AlphaVantageLoader. Install it with `pip install alpha_vantage`."
+                "alpha_vantage is required for AlphaVantageLoader. "
+                "Install it with `pip install alpha_vantage`."
             ) from exc
 
         self.TimeSeries = TimeSeries
@@ -146,7 +162,8 @@ class AlphaVantageLoader:
         """Search for global equities by keyword."""
         if self.SearchFunction is None:
             raise RuntimeError(
-                "Alpha Vantage symbol search is unavailable. Upgrade alpha_vantage or use a newer release."
+                "Alpha Vantage symbol search is unavailable. "
+                "Upgrade alpha_vantage or use a newer release."
             )
         data, _ = self.SearchFunction.symbol_search(keywords)
         return data
@@ -320,6 +337,13 @@ class TushareLoader:
         return self.pro.stock_company(ts_code=ts_code)
 
 
+def _wrds_loader(**kwargs):
+    """Lazily import WRDSLoader so the wrds package is only needed on demand."""
+    from .wrds_loader import WRDSLoader
+
+    return WRDSLoader(**kwargs)
+
+
 DATA_SOURCE_CLASSES = {
     "csv": CSVDataLoader,
     "yfinance": YFinanceLoader,
@@ -328,6 +352,7 @@ DATA_SOURCE_CLASSES = {
     "akshare": AKShareLoader,
     "baostock": BaoStockLoader,
     "tushare": TushareLoader,
+    "wrds": _wrds_loader,
 }
 
 
@@ -335,7 +360,6 @@ def create_data_loader(source: str, **kwargs):
     """Create a data loader instance by source name."""
     source_key = source.strip().lower()
     if source_key not in DATA_SOURCE_CLASSES:
-        raise ValueError(f"Unknown data source: {source}. Supported sources: {list(DATA_SOURCE_CLASSES)}")
+        raise ValueError(
+            f"Unknown data source: {source}. Supported sources: {list(DATA_SOURCE_CLASSES)}")
     return DATA_SOURCE_CLASSES[source_key](**kwargs)
-
-

@@ -27,21 +27,15 @@ jobs:
       run: python -m pip install --upgrade pip
 
     - name: Install dependencies
-      run: pip install -r requirements.txt
+      run: pip install -e ".[us,dev]"   # core + yfinance (tests) + pytest/flake8
 
     - name: Check Python syntax
       run: |
-        python -m py_compile src/dataloader/data_loader.py src/__init__.py
-        python -m py_compile src/eda/*.py
-        python -m py_compile src/tsm/*.py
+        python -m py_compile portfolio_management/*.py portfolio_management/*/*.py
         python -m py_compile examples/*.py
 
     - name: Lint with flake8 (optional warnings)
-      run: |
-        pip install flake8
-        flake8 src/ --count --statistics --show-source || true
+      run: flake8 portfolio_management/ tests/ examples/ --count --statistics --show-source || true
 
-    - name: Run unit tests (when available)
-      run: |
-        pip install pytest pytest-cov
-        pytest tests/ --maxfail=1 --disable-warnings -q || echo "No tests directory yet"
+    - name: Run unit tests
+      run: pytest --maxfail=1 -q
