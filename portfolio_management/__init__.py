@@ -1,6 +1,6 @@
 """Portfolio Management Package"""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Import main modules for easy access
 from .config import load_env as _load_env
