@@ -1,6 +1,7 @@
 """Portfolio strategy module."""
 
 from .momentum import MomentumStrategy
+from .pead import analyst_sue, event_car, standardized_unexpected_earnings
 from .performance import (
     apply_costs,
     capm,
@@ -23,4 +24,7 @@ __all__ = [
     "apply_costs",
     "cap_weighted_return",
     "max_drawdown",
+    "standardized_unexpected_earnings",
+    "analyst_sue",
+    "event_car",
 ]

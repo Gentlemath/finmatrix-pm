@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **PEAD event study** (`strategy/pead.py`): `standardized_unexpected_earnings`
+  (seasonal-random-walk SUE), `analyst_sue` (IBES analyst-based SUE =
+  (actual − consensus median) / dispersion, from the last pre-announcement
+  consensus), and `event_car` (event-time announcement- vs drift-window CARs,
+  with either a market adjustment or a supplied `benchmark_col` for
+  characteristic-matched abnormal returns) — all data-source-agnostic and
+  unit-tested. Plus `examples/pead_event_study.py` (reproduces the
+  post-earnings-drift decay on CRSP/Compustat), `examples/pead_analyst_study.py`
+  (analyst-SUE + size-decile-benchmark upgrade vs the Compustat/market-adjust
+  baseline, with era decay curves per SUE quintile), and
+  `examples/cache_pead_data.py` / `examples/cache_ibes_data.py` to fetch inputs.
+
 ## [0.2.0] - 2026-07-21
 
 ### Added
