@@ -149,6 +149,21 @@ def _era_quintile_means(res: pd.DataFrame, col: str) -> pd.DataFrame:
     return pd.DataFrame(rows).T
 
 
+def era_quintile_table(res: pd.DataFrame, col: str, label: str) -> None:
+    """Print the era x quintile means behind the figure.
+
+    The Q5-Q1 spread in ``era_table`` collapses two moving parts into one number;
+    this shows whether a widening spread comes from good news being rewarded more
+    or bad news being punished harder.
+    """
+    tbl = _era_quintile_means(res, col)
+    tbl.columns = [f"Q{int(c) + 1}" for c in tbl.columns]
+    print(f"\n=== {label} — mean CAR (%) by era x SUE quintile ===")
+    print(tbl.to_string(float_format=lambda v: f"{v:6.2f}"))
+    print(f"  {'Q5-Q1':<10}" + "".join(
+        f"{tbl['Q5'][i] - tbl['Q1'][i]:>7.2f}" for i in tbl.index))
+
+
 def plot_decay(res_a: pd.DataFrame, res_b: pd.DataFrame, out: Path) -> None:
     """2x2 grid: rows = announce/drift window, cols = pipeline A/B; a line per SUE quintile."""
     panels = [
@@ -201,6 +216,11 @@ def main() -> None:
 
     era_table(res_a, "A  Compustat SUE + market-adjust")
     era_table(res_b, "B  IBES SUE + size-adjust")
+
+    era_quintile_table(res_a, "ann_car", "A baseline  announce [0,+1]")
+    era_quintile_table(res_a, "drift_car", "A baseline  drift [+2,+63]")
+    era_quintile_table(res_b, "ann_car", "B upgrade   announce [0,+1]")
+    era_quintile_table(res_b, "drift_car", "B upgrade   drift [+2,+63]")
 
     print("\n=== full-sample drift CAR by SUE quintile (Q1=worst .. Q5=best) ===")
     quintile_ladder(res_a, "A baseline")
