@@ -1,7 +1,7 @@
 """PEAD event study on cached S&P 500 data — reproduces the drift's decay.
 
 Uses portfolio_management.strategy.{standardized_unexpected_earnings, event_car}.
-Reads the cached files written by cache_pead_data.py (licensed data, gitignored):
+Reads the cached files written by cache_pead_data_wrds.py (licensed data, gitignored):
   comp_earnings.csv, ccm_link.csv, crsp_daily.csv, crsp_monthly.csv
 
 Shows, by era and firm size, the SUE quintile (Q5-Q1) spread in the

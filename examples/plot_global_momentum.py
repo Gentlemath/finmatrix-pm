@@ -1,6 +1,6 @@
 """Plot per-country momentum long-short returns from cached JKP decile data.
 
-Reads local_data/global_momentum_deciles.csv (produced by cache_global_momentum.py)
+Reads local_data/global_momentum_deciles.csv (produced by cache_global_momentum_data_wrds.py)
 and writes two figures to local_data/figures/ (gitignored):
 
   1. momentum_yearly_heatmap.png  — market x year, diverging color centred at 0

@@ -23,7 +23,7 @@ measure can be separated from the effect of a better benchmark:
   percent.
 - **Reproduce**: `examples/pead_event_study.py` (baseline + size split) and
   `examples/pead_analyst_study.py` (A vs B + figure). Both read cached CSVs and
-  run offline; `examples/cache_pead_data.py` / `cache_ibes_data.py` fetch inputs.
+  run offline; `examples/cache_pead_data_wrds.py` / `cache_ibes_data_wrds.py` fetch inputs.
 
 ## Definitions
 
