@@ -1,5 +1,6 @@
 """Package entrypoint for data loaders."""
 
+from . import ds_futures
 from .base import BaseLoader
 from .data_loader import (
     AKShareLoader,
@@ -15,6 +16,7 @@ from .wrds_loader import WRDSLoader
 
 __all__ = [
     "BaseLoader",
+    "ds_futures",
     "CSVDataLoader",
     "YFinanceLoader",
     "AlphaVantageLoader",

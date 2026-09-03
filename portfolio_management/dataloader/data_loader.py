@@ -1,5 +1,6 @@
 """Data loading module for portfolio management."""
 
+import inspect
 import os
 from pathlib import Path
 from typing import Dict, Optional, Sequence, Union
@@ -142,10 +143,18 @@ class AlphaVantageLoader:
         """Get price data for a global symbol."""
         method_name = f"get_{interval.lower()}"
         if not hasattr(self.ts, method_name):
-            raise ValueError("Alpha Vantage price interval must be one of Daily, Weekly, Monthly.")
+            raise ValueError(
+                "Alpha Vantage price interval must be one of Daily, Weekly, Monthly, "
+                "or their *_Adjusted variants (e.g. 'Monthly_Adjusted')."
+            )
 
         method = getattr(self.ts, method_name)
-        data, _ = method(symbol=symbol, outputsize=outputsize)
+        # The adjusted weekly/monthly endpoints always return full history and
+        # take no ``outputsize`` argument, so only pass it where it is accepted.
+        if "outputsize" in inspect.signature(method).parameters:
+            data, _ = method(symbol=symbol, outputsize=outputsize)
+        else:
+            data, _ = method(symbol=symbol)
         return data
 
     def get_global_quote(self, symbol: str) -> pd.DataFrame:
