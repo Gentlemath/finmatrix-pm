@@ -22,13 +22,21 @@ portfolio_management/          # The installable Python package (import name)
   │   └── regime_detector.py   # Rule-based volatility regime detection
   └── strategy/                # Portfolio strategies / backtesting
       ├── momentum.py          # Configurable cross-sectional momentum strategy
+      ├── trend.py             # Time-series trend momentum; per-class speeds
+      ├── pead.py              # Post-earnings-announcement drift event study
       ├── universe.py          # Point-in-time membership + panel builders
-      └── performance.py       # Return stats, CAPM, turnover, transaction costs
+      └── performance.py       # Return stats, CAPM, turnover, costs, vol targeting
 examples/                      # eda / garch / ms_garch / regime_change / wrds /
-                               #   momentum / cache_wrds_data demo scripts
+                               #   momentum / trend x3 / pead demos + cache_* pulls
+tools/                         # one-off WRDS exploration and diagnostics
 tests/                         # Unit tests (pytest; network-free, synthetic data)
 docs/
-  └── momentum-research-log.md # Findings from the momentum backtests
+  ├── momentum-research-log.md # Findings from the momentum backtests
+  ├── trend-research-log.md    # Findings from the cross-asset trend backtests
+  ├── cta-primer.md            # Managed-futures / CTA background for the next build
+  ├── pead-research-log.md     # Findings from the PEAD event study
+  ├── strategy-research.md     # Survey: which published edges survive net of costs
+  └── strategy-research-2.md   # Survey: structural, cross-asset, vol, microstructure
 local_data/                    # Local (gitignored) data — e.g. cached CRSP pulls
 pyproject.toml                 # Packaging, dependencies/extras, pytest config
 setup.cfg                      # flake8 configuration
@@ -305,6 +313,119 @@ result, weights = strat.backtest(returns, membership=membership,
                                  market_caps=caps, return_weights=True)
 ```
 
+### TimeSeriesMomentum (trend-following)
+
+Where `MomentumStrategy` ranks assets *against each other*, `TimeSeriesMomentum`
+judges each asset **against its own past** — long if its own trailing return is
+positive, short if negative. That absolute signal is why trend-following can be
+long everything in a bull market and short everything in a crash, and it is the
+canonical managed-futures construction (Moskowitz, Ooi & Pedersen 2012).
+
+- `lookback` / `gap` — trailing signal window and skip (default 12 months, no skip)
+- `scale` — `True` sizes positions by inverse ex-ante volatility to `target_vol`;
+  `False` uses the bare sign, isolating the trend signal from the volatility-timing
+  effect
+- `long_short` — `False` gives long-or-flat (no shorts)
+- `vol_window` / `target_vol` — ex-ante volatility estimate and per-asset risk target
+
+```python
+from portfolio_management.strategy import TimeSeriesMomentum
+
+tsm = TimeSeriesMomentum(lookback=12, scale=True, long_short=True)
+result, weights = tsm.backtest(returns, periods_per_year=12, return_weights=True)
+```
+
+The backtester rebuilds eligibility every date, so a **ragged panel is fine** — an
+asset joins the book as soon as it has enough history, and the weights are
+normalized over the assets actually available that period.
+
+**Speed varies by asset class.** The horizon over which trends persist is not
+the same across markets — measured on 35 futures (1979–2026) and cross-checked
+on a 10-ETF basket, three groups fall out, and the grouping is *not* the obvious
+financials-vs-commodities split:
+
+| Group | Lookback | Markets |
+|---|---|---|
+| slow | 18m | bonds, **precious** metals |
+| mid | 9m | equity indices, FX |
+| fast | 3m | energy, **industrial** metals, agriculture |
+
+```python
+from portfolio_management.strategy import (
+    TREND_SPEEDS, TimeSeriesMomentum, lookback_by_group, speed_group)
+
+groups = {a: speed_group(a, asset_class[a]) for a in returns.columns}
+lb = lookback_by_group(groups, TREND_SPEEDS)          # asset -> lookback
+res, w = TimeSeriesMomentum(lookback=lb).backtest(returns, ...)
+```
+
+Gold optimises at 12m and copper at 3m, so the precious/industrial split inside
+"metals" is the part that matters. Reversing the grouping halves the Sharpe,
+which is the evidence that it is a real ordering rather than a fitted one.
+
+**Portfolio volatility targeting.** Per-asset risk sizing leaves the book's own
+volatility wherever the correlations put it, and `/n` means it *falls* as markets
+are added. `volatility_target` rescales to a constant target using a lagged
+estimate, charging the leverage trade:
+
+```python
+from portfolio_management.strategy import volatility_target
+
+net, leverage, levered_weights = volatility_target(gross, w, target_vol=0.15)
+```
+
+**Mixed-frequency volatility.** The rebalance clock and the risk clock need not
+match. A 36-month `vol_window` carries three-year-old information; pass a
+higher-frequency panel to sharpen sizing without adding any turnover:
+
+```python
+res, w = TimeSeriesMomentum(lookback=12, vol_window=52).backtest(
+    monthly_returns, periods_per_year=12,
+    vol_returns=weekly_returns, vol_periods_per_year=52)   # trade monthly, size weekly
+```
+
+`vol_window` is then counted in periods of `vol_returns`. The alignment uses only
+weekly observations dated on or before each monthly formation date, so it
+introduces no look-ahead.
+
+Data: `examples/cache_futures_data_wrds.py` builds the 35-market futures basket
+(1979–2026, needs WRDS), or `examples/cache_etf_data_av.py [monthly|weekly]`
+builds a 10-ETF proxy. Then three demos, each making one point:
+
+```bash
+python examples/trend_demo.py            # the construction, and what each choice is worth
+python examples/trend_speed_demo.py      # why speed grouping matters + the falsification test
+python examples/trend_portfolio_demo.py  # volatility targeting and marginal contribution
+```
+
+See
+[`docs/trend-research-log.md`](docs/trend-research-log.md) for the results —
+including why volatility frequency matters, and why long/short and long-or-flat
+are different products rather than better and worse.
+
+### PEAD event study
+
+`strategy/pead.py` measures post-earnings-announcement drift in event time, and is
+data-source agnostic like the rest of the toolkit:
+
+- `standardized_unexpected_earnings` — seasonal-random-walk SUE from Compustat
+- `analyst_sue` — IBES analyst SUE, (actual − consensus median) / dispersion, from
+  the last pre-announcement consensus
+- `event_car` — announcement- vs drift-window CARs, with either a market adjustment
+  or a supplied `benchmark_col` for characteristic-matched abnormal returns
+
+```python
+from portfolio_management.strategy import (
+    analyst_sue, event_car, standardized_unexpected_earnings)
+
+sue = standardized_unexpected_earnings(earnings)          # or analyst_sue(actuals, consensus)
+cars = event_car(daily, events, windows={"announce": (0, 1), "drift": (2, 63)})
+```
+
+See `examples/pead_event_study.py` and `examples/pead_analyst_study.py`, and
+[`docs/pead-research-log.md`](docs/pead-research-log.md) for what the drift decay
+actually looks like across eras.
+
 ### Performance analytics
 
 `strategy/performance.py` scores a return series honestly — so market beta isn't
@@ -346,19 +467,31 @@ For what the backtests reveal about momentum across eras (regime dependence, the
 
 The toolkit now spans **data → EDA → time-series modeling → strategy/backtesting**,
 with a survivorship-bias-free WRDS/CRSP data path. Delivered so far: multi-source
-data loading, EDA, GARCH-family + regime models, a configurable momentum strategy,
-and honest performance analytics (excess Sharpe, CAPM, turnover, transaction costs).
+data loading, EDA, GARCH-family + regime models, three strategy families
+(cross-sectional momentum, cross-asset trend-following, PEAD event study), and
+honest performance analytics (excess Sharpe, CAPM, turnover, transaction costs).
 
 Candidate directions next:
 
+- **Carry, cross-asset**: the other durable premium in `docs/strategy-research-2.md`
+  (§2.2); equity dividend-yield carry is doable with current data
 - **Portfolio optimization**: mean-variance, risk parity, allocation
-- **More strategies / a shared backtest engine**: reuse the panel + cost machinery
+- **A shared backtest engine**: `MomentumStrategy` and `TimeSeriesMomentum` already
+  duplicate panel/eligibility/weighting logic worth factoring out
 - **Momentum crash control**: Daniel–Moskowitz volatility-scaling (tames the 2009 −65% year)
 - **Factor analysis**: PCA and factor models across multiple assets
 - **Extended modeling / ML**: VAR, more regime variants, predictive models
 
-See [`docs/momentum-research-log.md`](docs/momentum-research-log.md) for what the
-momentum backtests actually taught us about the strategy.
+Research logs record what the backtests actually taught us:
+[`momentum`](docs/momentum-research-log.md),
+[`trend`](docs/trend-research-log.md),
+[`PEAD`](docs/pead-research-log.md).
+The two survey documents ([`strategy-research.md`](docs/strategy-research.md),
+[`strategy-research-2.md`](docs/strategy-research-2.md)) record which published
+edges survive net of costs, and are what motivated the trend-following build.
+[`cta-primer.md`](docs/cta-primer.md) covers how managed-futures funds actually
+implement this — the continuous-contract problem, portfolio-level volatility
+targeting, and where our version differs from industry practice.
 
 ## References
 
