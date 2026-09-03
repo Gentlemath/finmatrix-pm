@@ -9,7 +9,7 @@ excess return, so leave ``rf=0`` for it. A long-only portfolio should use the
 real ``rf`` — otherwise its Sharpe is inflated by the risk-free rate.
 """
 
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -131,6 +131,80 @@ def apply_costs(
     """
     costs = transaction_costs(weights, cost).reindex(gross_returns.index).fillna(0.0)
     return (gross_returns - costs).rename("net")
+
+
+def volatility_target(
+    gross_returns: pd.Series,
+    weights: pd.DataFrame,
+    target_vol: float,
+    periods_per_year: int = 12,
+    window: int = 36,
+    min_periods: Optional[int] = None,
+    max_leverage: float = 10.0,
+    cost: float = 0.0010,
+) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
+    """Scale a strategy to a constant ex-ante volatility target.
+
+    Position sizing that targets risk *per asset* leaves the book's own
+    volatility wherever the correlations put it — and because a weight of
+    ``sign x (target/vol_i) / n`` shrinks as ``n`` grows, adding markets quietly
+    lowers portfolio risk. A 35-market futures book runs at ~4% annualised
+    volatility where a 10-market ETF book runs at ~5%. Portfolio volatility
+    should be a decision, not a by-product of basket size.
+
+    Leverage each period is ``target_vol / trailing_vol``, using an estimate that
+    ends **one period before** the period it sizes, so no future information
+    enters. The estimate comes from the strategy's own unlevered net returns,
+    which keeps it a fixed reference rather than a circular function of the
+    leverage being solved for.
+
+    **Costs.** The naive implementation multiplies the net return series by
+    leverage. That correctly scales the strategy's own trading costs but misses
+    the cost of *changing leverage*: moving from 5.50x to 5.38x is itself a
+    trade. This function instead scales the weights and re-costs them, so
+    ``sum |w_t - w_{t-1}|`` is computed on the levered book and the rebalancing
+    of leverage is charged exactly.
+
+    Note that Sharpe is **not** invariant here. Scaling by a constant cannot
+    change it, but scaling by a time-varying factor can: leverage rises when
+    volatility is low, which adds a volatility-timing effect on top of the
+    strategy. Measured on the futures trend book that is worth about +0.05
+    Sharpe. Attribute it to the timing, not to the leverage.
+
+    Args:
+        gross_returns: per-period strategy returns before costs.
+        weights: the net-weights panel that produced them, same index.
+        target_vol: annualised volatility to target (e.g. 0.15).
+        periods_per_year: 12 for monthly, 252 for daily.
+        window: periods in the trailing volatility estimate.
+        min_periods: minimum observations before sizing starts; defaults to
+            ``window // 2``. Earlier periods are dropped, not sized at 1x.
+        max_leverage: hard cap. Calm stretches can imply absurd gearing, and a
+            cap is the difference between a backtest and a fantasy.
+        cost: per-side proportional trading cost.
+
+    Returns:
+        ``(net, leverage, levered_weights)``.
+    """
+    if target_vol <= 0:
+        raise ValueError("target_vol must be > 0.")
+    if max_leverage <= 0:
+        raise ValueError("max_leverage must be > 0.")
+
+    w = weights.sort_index()
+    gross = gross_returns.sort_index()
+    base_net = apply_costs(gross, w, cost=cost)
+
+    mp = window // 2 if min_periods is None else min_periods
+    est = base_net.rolling(window, min_periods=mp).std() * np.sqrt(periods_per_year)
+    lev = (target_vol / est.replace(0.0, np.nan)).shift(1).clip(upper=max_leverage)
+    lev = lev.reindex(w.index)
+
+    keep = lev.notna()
+    lev = lev[keep]
+    lw = w.loc[lev.index].mul(lev, axis=0)
+    net = apply_costs(gross.loc[lev.index] * lev, lw, cost=cost)
+    return net.rename("net"), lev.rename("leverage"), lw
 
 
 def cap_weighted_return(

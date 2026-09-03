@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+
 import pytest
 
 from portfolio_management.strategy import (
@@ -12,6 +13,7 @@ from portfolio_management.strategy import (
     performance_summary,
     transaction_costs,
     turnover,
+    volatility_target,
 )
 
 
@@ -113,3 +115,72 @@ class TestCapWeightedReturn:
         # first month has no prior caps -> NaN; second uses w=(0.25, 0.75)
         assert np.isnan(bench.iloc[0])
         assert bench.iloc[1] == pytest.approx(0.25 * 0.10 + 0.75 * 0.00)
+
+
+class TestVolatilityTarget:
+    """Constant-volatility sizing, with the leverage trade actually charged."""
+
+    def _book(self, n=200, seed=0):
+        rng = np.random.default_rng(seed)
+        idx = pd.date_range("2000-01-31", periods=n, freq="ME")
+        # two assets, one calm stretch then a volatile one
+        scale = np.where(np.arange(n) < n // 2, 0.01, 0.04)
+        r = pd.DataFrame({"A": rng.normal(0.004, 1, n) * scale,
+                          "B": rng.normal(0.004, 1, n) * scale}, index=idx)
+        w = pd.DataFrame(0.5, index=idx, columns=["A", "B"])
+        gross = (w * r).sum(axis=1)
+        return gross, w, r
+
+    def test_realised_vol_lands_near_target(self):
+        gross, w, _ = self._book()
+        net, lev, lw = volatility_target(gross, w, 0.10, window=24, cost=0.0)
+        realised = net.std() * np.sqrt(12)
+        assert 0.06 < realised < 0.16          # lagged estimate, so not exact
+
+    def test_leverage_is_higher_when_volatility_is_lower(self):
+        gross, w, _ = self._book()
+        _, lev, _ = volatility_target(gross, w, 0.10, window=24, cost=0.0)
+        first, second = lev.iloc[:len(lev) // 2], lev.iloc[len(lev) // 2:]
+        assert first.mean() > second.mean()    # calm half gets more leverage
+
+    def test_no_lookahead(self):
+        """A shock after date t must not change leverage at or before t."""
+        gross, w, _ = self._book()
+        cut = gross.index[120]
+        shocked = gross.copy()
+        shocked.loc[shocked.index > cut] *= 8.0
+        _, a, _ = volatility_target(gross, w, 0.10, window=24, cost=0.0)
+        _, b, _ = volatility_target(shocked, w, 0.10, window=24, cost=0.0)
+        upto = a.index[a.index <= cut]
+        pd.testing.assert_series_equal(a.loc[upto], b.loc[upto])
+
+    def test_leverage_change_is_charged(self):
+        """Costing levered weights must exceed naively scaling a net series."""
+        gross, w, _ = self._book()
+        net, lev, lw = volatility_target(gross, w, 0.10, window=24, cost=0.0050)
+        base = apply_costs(gross, w, cost=0.0050)
+        naive = (base * lev).reindex(net.index)
+        # the exact version charges the leverage trade, so it earns no more
+        assert net.sum() <= naive.sum() + 1e-12
+
+    def test_constant_scaling_leaves_sharpe_unchanged(self):
+        """Contrast: a fixed multiple cannot change Sharpe; a varying one can."""
+        gross, w, _ = self._book()
+        base = apply_costs(gross, w, cost=0.0)
+        a = performance_summary(base, periods_per_year=12)["sharpe"]
+        b = performance_summary(base * 3.0, periods_per_year=12)["sharpe"]
+        assert a == pytest.approx(b, rel=1e-9)
+
+    def test_leverage_cap_respected(self):
+        gross, w, _ = self._book()
+        _, lev, _ = volatility_target(gross, w, 5.0, window=24,
+                                      max_leverage=2.0, cost=0.0)
+        assert lev.max() <= 2.0
+
+    @pytest.mark.parametrize("kw", [{"target_vol": 0.0}, {"target_vol": -0.1},
+                                    {"max_leverage": 0.0}])
+    def test_bad_params_raise(self, kw):
+        gross, w, _ = self._book()
+        args = {"target_vol": 0.1, **kw}
+        with pytest.raises(ValueError):
+            volatility_target(gross, w, window=24, **args)
