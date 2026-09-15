@@ -251,7 +251,7 @@ class TimeSeriesMomentum:
             if eligible.sum() == 0:
                 continue
 
-            names = dir_row.index[eligible]
+            names = dir_row.index[eligible]  # tradble assets
             if self.scale:
                 raw = dir_row[names] * (self.target_vol / vol.loc[date][names])
             else:

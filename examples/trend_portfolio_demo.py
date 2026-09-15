@@ -14,6 +14,11 @@ Two things this demo exists to correct, because both are easy to get wrong:
      contribution to a portfolio -- and that depends on the leg being LEVERED.
      Unlevered, a 40% allocation gives up a third of the return.
 
+Leverage brings a funding requirement, and the demo reports it two ways on
+purpose: the median exposure (how efficient the position normally is) and the
+tail (how much margin the account actually has to hold). They differ by about
+3x here, and confusing them is how a backtest that "works" gets margin-called.
+
 Full numbers and caveats: docs/trend-research-log.md
 """
 
@@ -88,7 +93,17 @@ def main() -> None:
               " portfolio section)")
         return
     net15, lev15, lw15 = levered[0.15]
-    gross_exp = lw15.abs().sum(axis=1).median()
+
+    # Gross notional per unit of capital in the trend leg: |w| summed across
+    # markets, because a short uses margin and carries exposure just like a long
+    # -- netting them would understate the position badly. The MEDIAN describes
+    # the typical state and answers "how capital-efficient is this", which is not
+    # the same question as "how much margin must the account hold". That one is
+    # answered by the tail, and the tail here is fat: see the stress line below.
+    exposure = lw15.abs().sum(axis=1)
+    gross_exp = exposure.median()
+    gross_p95 = exposure.quantile(0.95)
+    gross_max = exposure.max()
 
     print("\n=== 2. Added to equities: the leverage is the precondition ===")
     for label, leg, exp in [("trend leg UNLEVERED", unlev, W.abs().sum(axis=1).median()),
@@ -107,6 +122,22 @@ def main() -> None:
             print(f"    {tag:<24}{sharpe(mix, RF_ANNUAL * (1 - wt)):>7.2f}"
                   f"{s['ann_return'] * 100:>9.1f}%{s['ann_vol'] * 100:>7.1f}%"
                   f"{s['max_drawdown'] * 100:>8.1f}%{notional:>9.1f}x{margin * 100:>8.0f}%")
+
+    print("\n  --- margin: typical is not the same as required ---")
+    print("  Gross notional in the trend leg, per unit of leg capital:")
+    print(f"    median {gross_exp:>6.1f}x     95th pct {gross_p95:>6.1f}x"
+          f"     worst {gross_max:>6.1f}x")
+    print(f"  {'allocation':<16}{'margin at median':>18}{'at 95th pct':>14}{'at worst':>11}")
+    for wt in (0.2, 0.4):
+        print(f"  {f'{int(wt * 100)}% in trend':<16}"
+              f"{wt * gross_exp * MARGIN_RATE * 100:>17.0f}%"
+              f"{wt * gross_p95 * MARGIN_RATE * 100:>13.0f}%"
+              f"{wt * gross_max * MARGIN_RATE * 100:>10.0f}%")
+    print("  The margin column in the table above uses the MEDIAN, so it says how")
+    print("  efficient the position normally is. It is NOT the funding requirement.")
+    print("  Size the account off the tail: exposure peaks when volatility has been")
+    print("  low, which is exactly when the estimator is about to be wrong and the")
+    print("  worst time to be forced out by a margin call.")
 
     print("\n  Unlevered, 40% in trend gives up a third of the return: a")
     print("  3-4% volatility leg cannot contribute enough risk to matter, so the")

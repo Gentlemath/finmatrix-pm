@@ -23,6 +23,276 @@ here; the underlying data is licensed and lives in the gitignored `local_data/`.
 - **Reproduce**: `examples/cache_futures_data_wrds.py`, then the configurations
   below. Basket definition and all Datastream pitfalls live in
   `portfolio_management/dataloader/ds_futures.py`.
+- **The basket shrinks at the end of the sample** — 35 markets in 2010, 33 in
+  2024, **28 by 2026**. Seven series stop carrying prices before the sample ends.
+  See below; it does not move the headline but it invalidates any claim about the
+  current book.
+
+### CME Group data is gone: seven markets die before the sample ends
+
+Discovered 2026-09-09, after the results below were computed. The monthly panel
+runs to 2026-08, but seven of the 35 markets stop earlier — and they are
+**exactly the seven CME Group markets**, 7 of 7, against 28 of 28 live elsewhere:
+
+| market | class | last real price | stale for |
+|---|---|---|---|
+| **GOLD** | metal | 2022-11-30 | **3.8 yrs** |
+| **SILVER** | metal | 2022-11-30 | **3.8 yrs** |
+| US2Y, US5Y, US10Y, US30Y | bond | 2025-04-25 | 1.4 yrs |
+| NATGAS | energy | 2026-04-02 | 0.4 yrs |
+
+**The cause is that `tr_ds_fut` no longer carries any live CME Group content.**
+A survey of every series priced within the three months before the 2026-09-09
+check (cutoff 2026-06-01 — an arbitrary threshold, stated because "live" is
+otherwise undefined) returns 40 exchange prefixes with three or more such
+series — EUREX (328), NSE, LIFFE,
+BSE, MEFF, HKFE, KSE, ICE, SFE, LME, TOCOM, ME, SGX, TAIFEX, MATIF and so on —
+and **no CME, CBOT, ECBOT, COMEX, NYL or NYMEX entry anywhere**. The withdrawal
+is staggered by exchange (COMEX 2022-11, CBOT 2025-04, NYMEX 2026-04), which is
+what progressive content removal looks like rather than a re-keying.
+
+So no search within this table recovers them. Two things were ruled out first:
+no roll variant helps (all four `CS00`–`CS03` variants of all four Treasury
+maturities die on the identical date; gold and silver `CS01`/`CS03` reach
+2022-12-28, one month past `CS00`, and the mini `CY*` contracts are equally
+dead), and the contracts are not present under new names (a deliberately wide
+name search across all exchanges and currencies found no US-exchange candidate).
+
+**The catalogue cannot detect this, and neither can `max(date_)`.** None of the
+seven is flagged `DEAD` in `calcseriesname` — Datastream does use that flag, just
+not here. Worse, `wrds_fut_series` keeps emitting rows after the prices stop, with
+`settlement` NULL: gold has 13 such rows spread over 3.6 years, so
+`max(date_)` reads 2026-06-26 while the last real price is 2022-11-30. Only
+`max(date_) filter (where settlement is not null)` finds the truth. This cost two
+wrong diagnoses before it was pinned down.
+
+`fetch_series`, `clean_prices` and `to_monthly` all behave correctly here —
+`bad_zero` and `bad_spike` are 0 for all seven, and `dropna(subset=["px"])`
+discards the NULL rows exactly as it should. The data is genuinely gone.
+
+**What this does and does not affect.** The window is 45 of 572 months, **8% of
+the sample**, so the 45-year headline (Sharpe 0.92) is barely moved. But:
+
+- **Precious metals are absent for the last 3.8 years.** Gold and silver are the
+  only two in the basket, and the precious/industrial split is described below as
+  "the load-bearing part" of the speed grouping. That finding has no
+  out-of-sample support after 2022-11.
+- **US rates are absent from the current book**, taking the bond class from 10
+  live markets to 6 (AUS3Y, BOBL, BUND, GILT, JGB10Y, SCHATZ). Every
+  point-in-time statement about the recent portfolio inherits this.
+- **The 2026-08-31 snapshot** in the margin section holds 24 markets, and its
+  AUS3Y-dominated position list is partly a consequence of the missing markets
+  rather than of the strategy's choices.
+
+**Substitutes, and they are better than what died.** Precious metals are
+recoverable with *longer* history than the COMEX series ever had, in local
+currency exactly as the basket convention requires:
+
+| need | substitute | span | observations |
+|---|---|---|---|
+| GOLD | `JAUCS00` TOCOM-GOLD (JPY) | **1986-06** → 2026-09 | 9,832 |
+| SILVER | `JSVCS00` TOCOM-SILVER (JPY) | **1984-01** → 2026-09 | 10,437 |
+| NATGAS | `LNGCS00` ICE-NATURAL GAS (GBP) | 1997-02 → 2026-09 | 7,570 |
+
+Against NYL gold's 2004-10 start, TOCOM roughly doubles the sample. Tokyo is a
+major bullion market, so this is an upgrade rather than a compromise.
+
+**US rates have no substitute** — no US-exchange bond future survives in this
+table. What is available is more *sovereign* breadth to partly replace the lost
+bond diversification: `AGDCS00` SFE-AU 10YR T-BOND (1984-12, 10,580 obs),
+`CDGCS00` ME-10Y Canadian Govt Bond (1989-09, 9,128), `KTBCS00` KSE-3YR Treasury
+Bond (1999-09, 6,642), `CGZCS00` ME-2YR Canadian Govt Bond (2004-05, 5,533). The
+loss of US-specific rate exposure is real and permanent from this source.
+
+**A separate bug surfaced in the same search.** The module records *"Dropped (no
+usable variant in CS00–CS03): AUS10Y (~700 rows everywhere)"*. But `AGDCS00`
+carries 10,580 observations from 1984-12. The original resolution searched the
+pattern that matched AUS3Y — `SFE-AUST 3 YEAR T-BOND` — while the ten-year is
+named `SFE-AU 10 YR T-BOND DAY CONT`. A 42-year bond series was excluded by a
+naming mismatch, and should be added back.
+
+### The CME data was never missing — only the continuous series lost it
+
+`tr_ds_fut` has 20 tables; this project uses two. The continuous series
+(`wrds_cseries_info` / `wrds_fut_series`) are a **derived** product. The
+individual contracts they are stitched from live in `wrds_contract_info` /
+`wrds_fut_contract`, and those **do** carry CME Group — 2,231 NYMEX, 679 CME,
+559 CME E, 425 ECBOT contracts — with far more history than the derived series
+ever had:
+
+| market | contracts | first price | last settle | continuous series had |
+|---|---|---|---|---|
+| GOLD (COMEX) | 821 | **1977-08** | 2026-04-03 | 2004-10 → 2022-11 |
+| US10Y (CBOT) | 179 | **1982-05** | 2026-04-03 | 1998-10 → 2025-04 |
+| US5Y (CBOT) | 155 | 1988-05 | 2026-04-03 | 1998-10 → 2025-04 |
+| NATGAS (NYMEX) | 1,213 | 1990-04 | 2026-04-03 | 1990-04 → 2026-04 |
+| US30Y Ultra | 68 | 2010-01 | 2026-04-03 | 1998-09 → 2025-04 |
+
+Every contract carries a settlement, and `volume` and `openinterest` are
+populated for essentially all of them. Front-month open interest confirms these
+are the right contracts: US5Y peaks at 6,803,094 contracts, US10Y at 5,611,437.
+
+> **Resolved 2026-09-09, after two wrong turns.** The spans below were first
+> obtained by matching `contrname`; a `clscode` check then suggested they were
+> unattainable, because the basket's gold class (335) runs only 2004-10 →
+> 2022-12. Both readings were incomplete. There is a **hierarchy** —
+> instrument → class (`clscode`) → contract — and a single instrument carries
+> several classes. The basket's continuous series pin each market to *one* class,
+> and for the CME markets that class is deprecated. The long histories are real
+> and sit in other classes of the same instrument. See *The classes are the fix*
+> below.
+
+**And they stitch with zero gaps.** Contract-level coverage was tested month by
+month — for every month between first and last price, does any contract carry a
+settlement? — because a long span with sparse early listings would not be
+usable. It is fully covered:
+
+| market | first | last | months | covered | gaps | contracts live at once (min) |
+|---|---|---|---|---|---|---|
+| SILVER 5000OZ | **1973-01** | 2026-04 | 640 | 640 | **0** | 8 |
+| GOLD 100OZ | 1977-08 | 2026-04 | 585 | 585 | **0** | 3 |
+| US10Y | 1982-05 | 2026-04 | 528 | 528 | **0** | 2 |
+| US5Y | 1988-05 | 2026-04 | 456 | 456 | **0** | 2 |
+| NATGAS | 1990-04 | 2026-09 | 438 | 438 | **0** | 11 |
+| US30Y **Ultra** | 2010-01 | 2026-04 | 196 | 196 | **0** | 3 |
+
+Against the ~218 months the continuous series gave gold and silver, this is
+**2.7×** and **2.9×** more data. US10Y gains 1.7×.
+
+**A consequence for the whole sample, not just these markets.** The basket
+currently starts 1979-01 (cocoa). COMEX silver is priced from **1973-01**, so
+rebuilding would extend the sample by six years — 572 months to 640+, a 12%
+larger sample, and specifically in the high-inflation 1970s where trend
+following is supposed to have performed best. That period is currently absent
+altogether.
+
+Roll choice is available throughout: at least two contracts are simultaneously
+priced in every era for every market (US10Y runs a clean quarterly cycle, median
+4 live; natural gas has a median of 259 after 2010).
+
+### The classes are the fix, and "CME data is gone" was wrong
+
+`tr_ds_fut` has a hierarchy this log missed for a long time:
+
+```
+instrument  (COMEX gold)
+  └─ class      clscode 335  -> 2004-10 .. 2022-12, 218 months, DEAD
+     class      clscode 1508 -> 1977-08 .. 2026-04, 584 months, 29 unexpired
+       └─ contract   NGC0926, expires 2026-09-28
+            └─ prices  wrds_fut_contract
+```
+
+A continuous series pins its market to **one** class. For the CME markets that
+class is deprecated — but the instrument's other classes are intact. Comparing
+every class of each basket market's instrument:
+
+| market | basket class | better class | months: now → better | staleness: now → better |
+|---|---|---|---|---|
+| **SILVER** | 3607 | **1574** (1973-01 →) | 218 → **639** | 1351d → 159d |
+| **GOLD** | 335 | **1508** (1977-08 →) | 218 → **584** | 1351d → 159d |
+| **US30Y** | 330 | **2441** (1977-08 →) | 319 → **584** | 502d → 159d |
+| **US2Y** | 342 | **2523** (1990-06 →) | 319 → **430** | 502d → 159d |
+
+All four are the same instrument on the same exchange, reached by a different
+`clscode`. Silver nearly triples, gold nearly doubles, and US30Y turns out to run
+from **1977-08** — the classic 30-year bond, not the 2010 Ultra contract an
+earlier draft confused it with.
+
+**What remains true:** every CME class still stops at 2026-04-03, so the feed
+cutoff is real and no class reaches the sample end. **What was wrong:** the
+conclusion that these markets were permanently lost. Recovering 2022-12 → 2026-04
+for the metals, 2025-04 → 2026-04 for the bonds, and roughly tripling the history
+is a different outcome entirely.
+
+**Method note, because this cost four wrong conclusions.** In order, I claimed:
+the series were dead (right, badly evidenced); it was a pipeline bug (wrong —
+`max(date_)` counts NULL-settlement rows); CME data is absent from WRDS (wrong —
+only from the *derived* series); and the long histories were unattainable (wrong
+— they are in other classes). Every error came from trusting a proxy for the
+thing actually wanted: `max(date_)` for "last price", `contrname` for identity,
+one `clscode` for "the instrument". The reliable procedure is to resolve identity
+by key, verify against price data rather than metadata, and check whether the key
+is one-to-one before assuming it.
+
+**All four US Treasuries have upgrades, in a second naming family.** The
+`... US TREASURY NOTE` names carry only the deprecated classes; the live ones sit
+under `... US T-NOTE COMP.`, which the first scan never saw because it compared
+only classes sharing the basket's own `contrname`:
+
+| market | basket class | better class | mnem | months: now → better |
+|---|---|---|---|---|
+| US30Y | 330 (`CZB`) | **2441** (`CUB`) 1977-08 → | CUB | 319 → **584** |
+| US10Y | 338 (`CZN`) | **3896** (`CTT`) 1982-05 → | CTT | 318 → **527** |
+| US5Y | 334 (`CZF`) | **1997** (`CTF`) 1988-05 → | CTF | 318 → **455** |
+| US2Y | 342 (`CZT`) | **2523** (`CTE`) 1990-06 → | CTE | 319 → **430** |
+
+Three parallel families exist per maturity: `CZ*` (what the basket uses, dead
+2025-04), `CT*`/`CU*` (live to 2026-04), and a third dead since 2015. The
+contract `CTT0926` — a ten-year note expiring 2026-09-21, unexpired as of this
+writing — belongs to class 3896, which is why it was invisible while querying 338.
+
+**The other three flagged "upgrades" were false positives**, caught by checking
+currency and mnemonic prefix rather than name:
+
+| market | basket | flagged | verdict |
+|---|---|---|---|
+| NATGAS | 1539 USD `NNG` Henry Hub | 3756 **GBP** `LNG` | ICE UK gas — different market |
+| CORN_MAT | 3836 EUR `PCO` MATIF | 2216 **JPY** `JCN` | Tokyo corn — different market |
+| WHEAT_LIF | 1295 GBP `LWH` LIFFE | 1405 **USD** `MMW` | US wheat — different market |
+
+So **NATGAS has no upgrade** — 1539 is already the best Henry Hub class and
+simply stops at the CME cutoff. Any future class swap must verify currency and
+mnemonic family, not just the name; `contrname` alone would have silently
+replaced Paris corn with Tokyo corn.
+
+**A genuine addition, not an upgrade:** clscode 2420, USD `CCF` — CBOT corn,
+1973-01 → 2026-04-03, 639 months. The basket carries only MATIF corn from
+1999-10. Worth adding on its own merits.
+
+**Contract-identity warning.** `ULTRA T-BOND` is a contract introduced in 2010,
+**not** the classic 30-year T-Bond the basket used
+(`ECBOT-30 YEAR US T-BOND CONT.`, priced 1998-09). An earlier draft of this
+section compared the two as though they were the same instrument. Exact names
+for the 2-year note and the classic 30-year bond are still unresolved — the
+naming is inconsistent even among the ones that resolve (`5 YEAR US T-NOTE
+COMP.` beside `10 YRS US T-NOTE COMP.`), so they must be found by search rather
+than by analogy.
+
+**The hard limit is 2026-04-03.** Every CME market's last settlement is that same
+date — five months before the 2026-09-09 check — so the contract tables do not
+reach the sample end either, and for these markets there is no current price at
+all. Note that unexpired CME contracts remain *listed* well beyond that date;
+listing and pricing are different things, and conflating them produced a
+"currently trading" table in an earlier draft that consisted entirely of expired
+contracts. This also
+explains the staggered continuous-series deaths: Datastream stopped maintaining
+the derived series per-market at different times while the contract feed ran on
+until it ceased entirely.
+
+**Why rebuilding from contracts would be worth more than restoring seven
+markets.** Three defects recorded elsewhere in this log are artifacts of using a
+vendor-stitched series, and all three dissolve:
+
+- **Roll returns are currently discarded.** `mask_roll_returns` throws away one
+  return per roll — 4.64 rolls/year per market — because the vendor series is not
+  back-adjusted and the roll-day `pct_change` compares two different instruments.
+  With both contracts' prices at the roll the true return is computable, which
+  also closes the roll-yield question flagged as "not determinable from this
+  data".
+- **The roll rule is fixed and suboptimal.** CS00 means "switch on the first day
+  of the new month"; the log measures 7–10 days of Bund exposure left on a
+  contract still holding 1.43M contracts of open interest. With `openinterest`
+  per contract, rolling on liquidity — the managed-futures convention — becomes
+  testable rather than unavailable.
+- **Gold's history nearly triples**, 1977-08 against 2004-10, which matters
+  because precious metals carry the load-bearing part of the speed grouping and
+  currently have the shortest history of any slow-group market.
+
+Not yet done. Two known traps for whoever does it: contract names need the same
+careful resolution as the continuous series (gold has a retired `CZG*` family —
+`CZG0626` last priced 2021-12-13 with zero open interest — alongside the live
+`NGC*` one), and a `SILVER%` name search picks up TOCOM, DGCX and MCX contracts,
+so COMEX silver still needs verifying specifically.
 
 ### Terms used throughout
 
@@ -714,10 +984,14 @@ most data and therefore reads lowest. An earlier version of this log quoted the
 `min_periods=24` figures without saying so, which was not a defensible way to
 pick a number.
 
-Futures make this practical: margin is a few percent of notional, so a 4.4×
-notional book consumes roughly a quarter of capital in margin. Doing the same
-with ETFs would require actual borrowing. This is the capital-efficiency argument
-for futures, quantified.
+Futures make this practical: at a 15% target the book consumes **8% of capital
+in margin at the median and never more than 14%**, because exchange margin tracks
+contract *risk* and inverse-volatility sizing puts the large notional in the
+low-risk contracts. Doing the same with ETFs would require actual borrowing. This
+is the capital-efficiency argument for futures, quantified — see *Risk, margin and
+cost of actually running this* below for the derivation, and note that an earlier
+version of this paragraph used a flat percent-of-notional model that overstated
+the requirement by 3–8×.
 
 ## Breadth rose, gross performance did not
 
@@ -757,6 +1031,14 @@ A 0.09 Sharpe swing from an execution assumption, on a strategy whose whole edge
 is 0.89. Turnover is 2.3×/year, so this scales directly. Any comparison between
 instruments has to use each one's real cost — comparing futures and ETFs at the
 same 10 bps understates futures by about 0.09 Sharpe.
+
+The table above is the **unlevered** book. The same sensitivity at a 15%
+volatility target, what the 2 bps assumption is actually worth contract by
+contract, and the roll cost and yield this model omits entirely, are all in
+*Risk, margin and cost of actually running this* below. Short version: 2 bps is
+roughly 5× too conservative for the liquid financial futures, and roll days are
+treated as return-neutral so an uncharged cost of the same order as signal
+turnover is missing; the two errors largely cancel.
 
 ## Crisis alpha, and the drought
 
@@ -811,17 +1093,603 @@ risk, so the portfolio is mostly 60% equities and 40% near-cash. Levered to 15%,
 the return is essentially unchanged (11.4%) while the drawdown halves. That is
 the result worth having, and it is a statement about the levered leg.
 
-**What the leverage costs to hold.** At the 60/40 mix the trend leg contributes
-0.4 × 4.6 ≈ 1.8× of portfolio capital in futures notional, for a total notional
-of 2.4×. At a 5% margin rate that consumes about **9% of portfolio capital** in
-margin — comfortable, with room for the 95th-percentile leverage of 5.9×. This
-is only practical with futures; the same position in ETFs would require actual
-borrowing at a real financing cost, which none of these figures include.
+**What the leverage costs to hold — and why the median understates it.** Two
+different quantities get confused here, so both are stated. The leverage
+*multiplier* is well behaved; the *gross notional* it produces is not, because
+inverse-volatility sizing makes the unlevered book's own exposure swing between
+1× and 5× (a 1.3%-volatility Schatz position alone can consume most of it):
+
+| Per unit of trend-leg capital | median | 95th pct | worst |
+|---|---|---|---|
+| leverage multiplier | 4.6× | 5.8× | 6.3× |
+| unlevered gross notional | 1.0× | 2.7× | 5.0× |
+| **levered gross notional** | **4.6×** | **13.3×** | **23.7×** |
+
+Both factors vary, so the tail of their product is far fatter than the product of
+the medians — 13.3× against 4.6×. Margin as a share of total portfolio capital
+for a 60/40 mix, under both models:
+
+| margin, share of portfolio capital | median | 95th pct | worst |
+|---|---|---|---|
+| flat 5% of gross notional | 9% | 27% | 47% |
+| **risk-based** (see derivation below) | **3.2%** | **4.5%** | **5.6%** |
+| overstatement | 2.9× | 5.9× | 8.4× |
+
+**How these numbers are built.** Three inputs, only one of which is measured:
+
+| input | value | status |
+|---|---|---|
+| median levered gross notional, per unit of trend-leg capital | 4.6191× | **measured**, 566 months |
+| blended margin rate | 5% of notional | **assumed** — the weak link |
+| trend-leg allocation | 40% | a **choice** |
+
+```
+$1,000,000 portfolio × 40%   = $400,000     trend-leg capital
+$400,000 × 4.6191            = $1,847,633   futures face value
+$1,847,633 × 5%              = $92,382      margin
+$92,382 / $1,000,000         = 9.24%        of portfolio capital
+```
+
+i.e. `4.6191 × 0.05 × 0.40 = 9.24%`. The 4.6191× is the *median of the monthly
+product* `Σ|w_i × lev_t|`, not the product of the medians — `0.9840 × 4.5711 =
+4.50`, which is why those two figures do not tie to 4.62.
+
+The **risk-based** column replaces only the margin-rate step, pricing each
+position as `K × sd_i × notional_i` with `K = 3.5`, then summing: median
+8.07% of trend-leg capital, × 40% = **3.23%**. The 2.9× gap decomposes cleanly —
+the flat model charges 5% on every position while the risk model averages **1.50%**
+of notional, because the large notional sits in the low-volatility contracts, and
+5.0 / 1.50 = 3.3×.
+
+`K = 3.5` is a choice, not a derivation: a two-day 99% move is `2.33 × √2 = 3.30`,
+rounded up. Halve `K` and every risk-based margin figure here halves.
+
+**The same thing in dollars**, which is the only framing that answers whether the
+position is fundable. $1,000,000 portfolio: $600,000 in equities and **$400,000 in
+the trend leg, held as T-bills.** All margin comes out of that $400,000.
+
+| | median | 95th pct | worst |
+|---|---|---|---|
+| *flat 5%-of-notional model* | | | |
+| margin required | $92,382 | $265,840 | **$474,061** |
+| as % of the $400k leg | 23% | 66% | **119%** |
+| T-bills left free | $307,618 | $134,160 | **−$74,061** |
+| *risk-based model* | | | |
+| margin required | $32,298 | $44,819 | **$56,313** |
+| as % of the $400k leg | 8% | 11% | **14%** |
+| T-bills left free | $367,702 | $355,181 | **$343,687** |
+
+Under the flat model the worst month needs $474,061 against a $400,000
+allocation, so the equity sleeve has to be sold to post collateral — that is the
+margin call. Under the risk-based model the worst month in 45 years uses 14% of
+the allocation and leaves $343,687 free. Nothing is ever forced.
+
+The reason is the same timing observation, with the sign corrected.
+**`corr(gross notional, average asset volatility) = −0.62`**: gross notional is
+`Σ(1/σᵢ)`, so it peaks precisely when volatility is low. Margin is the *product*
+of exposure and volatility, so the two factors offset rather than compound. The
+tail in gross notional is real; the tail in the funding requirement is not.
+
+Two corrections are recorded here rather than deleted, because both were made in
+this log and both are instructive:
+
+- An early draft called 9% "comfortable, with room for the 95th-percentile
+  leverage of 5.9×". Wrong quantity: 5.9× is the *multiplier*, which barely moves
+  (4.6× → 6.3×), not the gross notional, which triples.
+- The correction to that then asserted a margin call at the 95th percentile,
+  and was wrong twice over. It priced margin as a flat percentage of notional —
+  once margin is priced on risk the requirement is nearly flat across the
+  gross-notional distribution (see *Margin: notional-based models overstate it by
+  3–8×* below). And even within the flat model the named percentile was wrong:
+  the 95th needs 66% of the trend allocation, which is affordable; only the single
+  worst month exceeds it.
+- Both of those errors shared a hidden premise — "an account funded to the
+  median" — which imagines earmarking exactly the median requirement and
+  deploying the rest. Nothing else in this log describes the 60/40 mix that way.
+  Funded as described, the whole 40% sits in bills and there is nothing to fall
+  short of until the requirement exceeds 40%. State the capital actually
+  available before claiming a shortfall against it.
+
+**What survives from that argument** is the risk observation, not the funding
+one: exposure peaks when realised volatility has been low, and that is exactly
+when a backward-looking estimator is most likely to be about to understate risk.
+That is a statement about vulnerability to a regime break — the lagged-estimator
+exposure noted throughout this log — and it is unaffected by how margin is
+computed.
+
+This is only practical with futures; the same position in ETFs would require
+actual borrowing at a real financing cost, which none of these figures include.
 
 Note the Sharpe convention: futures are self-financing (margin embeds the
 funding), so `rf=0` is the correct excess Sharpe for the strategy. Equity
 buy-and-hold must have cash subtracted, or its Sharpe is inflated — SPY reads
 0.74 at `rf=0` against 0.63 properly measured.
+
+## Risk, margin and cost of actually running this
+
+Everything above measures the return series. This section measures the *account*
+— what the daily and monthly cash flows look like, how much collateral is
+pledged, and what execution really costs. All figures are the recommended
+configuration at a 15% volatility target (Sharpe 0.92, 13.76%/year, 15.43%
+realised volatility, −24.7% maximum drawdown), 1981-01 to 2026-08, 548 months
+and 11,829 trading days, on a notional $1M account.
+
+The daily figures come from applying each month's *levered* weights to the daily
+return panel — the honest representation of the book, because contract counts are
+set at the monthly rebalance and then frozen for the rest of the month.
+
+### Monthly outcomes
+
+**Normal months.**
+
+| | |
+|---|---|
+| median | **+0.95%** |
+| mean | +1.18% |
+| standard deviation | 4.45% |
+| 25th / 75th pct | −1.50% / +3.74% |
+| 5th / 95th pct | −5.44% / +8.66% |
+| win rate | 61.7% |
+| months spent in drawdown | 69% |
+
+**Extreme months.**
+
+| | | |
+|---|---|---|
+| worst month | **−23.2%** | 1981-01 |
+| 2nd worst | −11.4% | 2001-04 |
+| 3rd worst | −11.3% | 1999-05 |
+| best month | **+18.1%** | 2008-10 |
+| 2nd best | +17.6% | 2019-08 |
+| worst rolling 12m | **−20.6%** | to 1981-12 |
+| best rolling 12m | +77.2% | to 1997-07 |
+| maximum drawdown | **−24.7%** | trough 1990-05 |
+
+Two features of this distribution matter more than the summary statistics.
+
+**The strategy is in drawdown 69% of the time.** A 0.92 Sharpe does not mean a
+smooth ride; it means a small positive drift with a positively skewed tail. The
+median month is +0.95% and the win rate is only 61.7%, so most of the return
+arrives in the +8% to +18% months. Sitting under water two-thirds of the time is
+the normal state of this strategy, not a warning sign.
+
+**The worst month, −23.2% in 1981-01, is nearly the entire maximum drawdown in
+one observation.** That month had only ten markets trading and the volatility
+estimator was still warming up. It is the single most influential observation in
+the sample and it sits in the least reliable part of it.
+
+### Daily outcomes
+
+| | | on $1M |
+|---|---|---|
+| \|daily\| median | 0.48% | $4,807 |
+| \|daily\| 90th pct | 1.37% | $13,661 |
+| \|daily\| 95th pct | 1.75% | $17,528 |
+| \|daily\| 99th pct | 2.71% | $27,064 |
+| daily sd | 0.87% | (13.9% annualised — consistent with the 15% target) |
+| **worst day** | **−7.65%** | **−$76,455** (2021-11-26) |
+| best day | +7.06% | +$70,578 (2008-10-06) |
+| worst 2-day | −9.37% | −$93,705 (to 2008-10-14) |
+| worst 5-day | −10.95% | −$109,550 (to 2007-03-05) |
+| worst 20-day | −14.86% | −$148,590 (to 2006-06-08) |
+
+The worst day is 8.8 daily standard deviations. That is not a fat-tail artifact of
+a single contract — it is what happens when a one-way book meets a coordinated
+reversal, which is the characteristic failure mode of trend following and is
+discussed under crisis alpha above.
+
+### Intra-month: the path inside a frozen book
+
+Because contract counts are frozen between rebalances, the intra-month path is
+not something the strategy can respond to. Both measures below are computed on
+the daily NAV path within each calendar month:
+
+| | median | 5th pct | 1st pct | worst |
+|---|---|---|---|---|
+| peak-to-trough (a drawdown) | −2.78% | −8.02% | −11.48% | −13.99% |
+| **start-to-trough** (an actual loss from the rebalance) | **−1.37%** | −6.89% | −10.61% | **−13.14%** |
+
+The distinction is load-bearing and an earlier draft of this log got it wrong.
+Peak-to-trough measures a drawdown from an intra-month high, which may sit above
+the rebalance level; start-to-trough measures the loss against the equity the
+account actually had when the position was set. **For margin purposes only
+start-to-trough matters**, because a margin call tests equity against the
+requirement in absolute terms, not against a high-water mark. The worst
+start-to-trough months were 2019-09 (−13.1%), 2001-11 (−11.7%), 2001-04 (−11.0%)
+and 2018-02 (−10.9%).
+
+Reproduce with `examples/trend_intramonth_demo.py`; pass a month
+(`... 2020-03`) to print that month's daily NAV path.
+
+### Margin: notional-based models overstate it by 3–8×
+
+The natural first model — margin is a few percent of gross notional — is wrong
+here, and wrong in a direction that makes the strategy look infeasible when it
+is not.
+
+**The reason is structural, and it needs no model to see.** Margin is set **per
+contract**, from that contract's own risk, and then summed across the portfolio.
+That is the shape of SPAN and of every system that succeeded it. Real margin
+rates therefore vary by roughly an **order of magnitude** across a diversified
+basket — short-dated bond futures sit near 0.3–0.6% of notional, energy and softs
+near 7–17%. **That alone means no single percentage applied to total gross
+notional is the right shape of model**, whatever number is chosen for it.
+
+It fails in a predictable direction here, because inverse-volatility sizing
+deliberately puts the *largest notional in the lowest-risk contracts* — precisely
+the ones carrying the smallest margin rates. A blended rate calibrated to the
+average *contract* is far too high for a book whose notional is concentrated in
+the cheap tail. (Measured on this basket: the equal-weighted margin rate across
+markets is 5.1%, while the notional-weighted rate is 1.5%. The flat model's 5% was
+a reasonable guess at the first number and was then applied to the second.)
+
+**Everything above is exchange practice. What follows is an estimate of the
+resulting error, and it carries a model.** Pricing each position as
+
+```
+margin_i = K × sd_i × |notional_i|        K = 3.5
+```
+
+where `sd_i` is asset *i*'s **daily** return standard deviation and `K = 3.5`
+approximates a two-day 99% adverse move (`2.33 × √2 = 3.30`, rounded up) — the
+rough basis exchanges use:
+
+| Gross notional percentile | flat 5% of gross | risk-based | overstatement |
+|---|---|---|---|
+| median | 23.1% | **8.1%** | 2.9× |
+| 90th | 58.6% | 10.7% | 5.5× |
+| 95th | 66.5% | **11.2%** | 5.9× |
+| 99th | 95.4% | 12.5% | 7.6× |
+| max | 118.5% | **14.1%** (2020-03) | 8.4× |
+
+The flat model implies the requirement exceeds capital in 0.91% of months —
+i.e. that the strategy is unimplementable. On the risk-based model it never
+exceeds 14.1%. **The infeasibility was an artifact of the wrong margin model.**
+
+The per-position detail below is **modelled output, not observed exchange
+margin** — the last two columns are computed from the daily-standard-deviation
+column via `K × sd_i × notional_i`.
+
+Snapshot: the rebalance of **2026-08-31**, the last in the panel, on a notional
+$1M account. That month held **24 of the 35 markets** (the rest had no signal),
+at 7.13× gross notional against a 4.62× median — so it is a high-exposure month,
+not a typical one. The `daily sd` column is the 126-day rolling standard
+deviation over 2026-03-04 to 2026-08-26. The rows are the three largest and two
+smallest positions by notional, chosen to show the range rather than as a sample:
+
+| market | notional | daily sd | *modelled* margin | *implied* rate |
+|---|---|---|---|---|
+| AUS3Y | $2,147,995 | 0.06% | $4,383 | 0.2% |
+| SCHATZ | $1,293,204 | 0.10% | $4,549 | 0.4% |
+| BOBL | $596,641 | 0.22% | $4,536 | 0.8% |
+| ORANGEJUICE | $27,226 | 4.47% | $4,260 | 15.6% |
+| KOSPI200 | $27,453 | 4.78% | $4,592 | 16.7% |
+
+**And the near-equality of the margin column is arithmetic, not evidence.** If
+`notional_i ∝ 1/σ_i` (the sizing rule) and `margin_i ∝ σ_i × notional_i` (the
+proxy), then `margin_i` is constant identically. The measured $4,471 ± $171
+across the 24 held positions is that identity reappearing, not a discovery. It
+tells us the *sign* of the effect is right — real margin does rise with contract
+risk, so the offset against inverse-volatility sizing is genuine — but the
+tightness of the equalisation is an artifact of assuming margin is exactly linear
+in the standard deviation. Real requirements include floors, stress buffers and
+liquidity add-ons that break that linearity, which is the anti-procyclicality
+point below.
+
+Read the conclusion accordingly: **total margin is far closer to constant across
+the gross-notional distribution than a flat percentage implies, and the flat
+model overstates the requirement by something in the region of 3×.** The
+direction is solid; the multiple is an estimate. Gross notional of 7.13× ($7.1M
+on $1M) is modelled to consume $106,996 — 10.7% of capital — against $356,685
+under the flat model.
+
+This corrects the "a 4.4× notional book consumes roughly a quarter of capital in
+margin" estimate under the leverage section above, which used the flat model.
+
+**This is a proxy, not an industry standard — and the gap runs both ways.**
+
+No clearinghouse computes margin as a multiple of trailing volatility. The real
+systems are scenario engines: SPAN (16 risk-array scenarios per contract), SPAN 2
+(historical Value at Risk plus stress and liquidity add-ons), Eurex Prisma
+(filtered historical VaR), OCC STANS (Monte Carlo). What *is* conventional is the
+**target** — CPMI-IOSCO's Principles for Financial Market Infrastructures require
+99% coverage over an appropriate close-out period, and EMIR specifies 99% over two
+days for exchange-traded futures, which is where `2.33 × √2` comes from. The
+objective is standard; the method here is a back-of-envelope stand-in.
+
+Two omissions push the estimate **down**: SPAN inter-commodity credits (which this
+book barely earns — see below) and the normality assumption, which understates
+fat tails.
+
+One omission pushes it **up, and it is the important one.** Regulators mandate
+**anti-procyclicality**: margin floors, stress-period buffers, and long lookbacks
+(EMIR requires e.g. a 25% buffer, or a 10-year window including stressed
+observations) precisely so requirements do not collapse in calm markets and spike
+in a crisis. This model has margin falling whenever volatility falls — exactly
+what the rules forbid. Re-running under progressively more conservative
+specifications:
+
+| specification | median | 95th | max |
+|---|---|---|---|
+| this proxy (126-day sd) | 8.1% | 11.2% | **14.1%** |
+| 10-year lookback | 8.6% | 14.5% | 20.5% |
+| anti-procyclical `max(126d, 10y)` | 9.4% | 14.9% | 20.6% |
+| **+ 25% EMIR-style buffer** | 11.7% | 18.6% | **25.7%** |
+
+It bites hardest exactly where this section claimed safety — the calm,
+high-gross months of 2020–2021, where an anti-procyclical requirement is
+**1.25–1.43× this proxy** (2021-02: 9.2% → 12.8% → 16.1% at 23.7× gross). The
+model reads those months as cheap because short-rate volatility had collapsed; a
+clearinghouse with a ten-year lookback refuses to recognise the calm.
+
+**The funding conclusion survives, with roughly half the headroom.** For the
+60/40 mix the worst month moves from $56,313 (14% of the $400,000 trend
+allocation) to $102,909 (26%). Nothing is forced under any of the four
+specifications — but "never near a call" was too confident, and too confident in
+the direction that partially rehabilitates the concern retracted above.
+
+### SPAN offsets: this book barely earns any
+
+SPAN (Standard Portfolio Analysis of Risk, the CME system used by most
+exchanges) computes margin on portfolio risk rather than leg-by-leg, and grants
+**inter-commodity credits** for offsetting positions. Two structural facts mean
+this basket collects very little of that:
+
+**Credits do not cross clearinghouses.** The 35 markets clear at roughly eleven
+different clearing organisations (CME Group, Eurex Clearing, ICE Clear Europe,
+ICE Clear US, LME Clear, LCH/Euronext, HKEX, KRX, JPX, ASX, SGX). A long CME
+Treasury position and a short Eurex Bund position are near-perfectly hedged
+economically and attract no offset at all.
+
+**A trend book is directionally one-way.** SPAN credits reward holding one leg
+long and a correlated leg short. Trend following in a coherent regime holds the
+whole complex in the same direction. Measuring `|net| / gross` within each
+clearing group (1.00 = fully one-way, no offset available):
+
+| clearer | markets | % of gross | \|net\|/gross median | months >0.9 |
+|---|---|---|---|---|
+| Eurex | 5 | 20.7% | **1.00** | 54% |
+| CME | 7 | 18.1% | **1.00** | 63% |
+| ASX | 2 | 14.8% | **1.00** | 48% |
+| ICE-US | 6 | 8.9% | 0.41 | 15% |
+| ICE-EU | 5 | 7.2% | 0.57 | 29% |
+| LME | 4 | 1.9% | 1.00 | 49% |
+| LCH | 2 | 0.9% | 1.00 | 48% |
+| single-market clearers | 4 | 7.0% | n/a | n/a |
+
+The three groups carrying 54% of gross are fully one-way. Only the two ICE
+groups (16% of gross combined) hold genuinely two-sided positions.
+
+**This is a real asymmetry in the diversification argument.** The basket's
+effective breadth of 12.7 independent directions is what produces the 0.92
+Sharpe — diversification pays on the *return* side. It does not pay on the
+*margin* side, because SPAN keys off clearing structure and position direction
+rather than economic correlation. Lowering portfolio volatility does not lower
+capital consumption proportionally.
+
+### Daily clearing: what actually moves
+
+Two distinct things are called margin and they behave differently:
+
+| | what it is | T-bill eligible? |
+|---|---|---|
+| Initial / maintenance margin | a performance bond; still the account's asset, still earning | **yes** (with a haircut) |
+| **Variation margin** | daily cash settlement of the day's mark-to-market | **no — cash only** |
+
+Variation margin is computed against the **previous day's settlement price**
+(against the fill price on the day of entry) and settled in cash. So futures carry
+no unrealised profit or loss: each day's move is paid or collected, and the cost
+basis resets to the new settlement every day. This is why a futures return series
+is a pure price-return series with no accrual, and why `rf = 0` is the correct
+Sharpe convention — the funding embedded in the futures price and the yield on
+posted collateral cancel.
+
+Cash for a call is sourced, in order: excess cash in the account; the clearing
+broker's overnight credit against posted collateral; repo of the T-bill holdings;
+a wire from the bank; and, failing all of those, forced liquidation by the broker
+at its discretion. Exchanges can also call **intraday** in fast markets rather
+than waiting for the settle, and brokers generally require a cushion above the
+exchange minimum ("house margin").
+
+The implied balance sheet on a $1M account at a 15% volatility target:
+
+| | share of capital | form |
+|---|---|---|
+| margin (95th pct, risk-based) | 11.2% | T-bills |
+| cash sleeve for variation margin | ~4% | cash |
+| unencumbered | ~85% | T-bills, free |
+
+The 4% cash sleeve covers the 99th-percentile daily outflow ($27,064, 2.7%) with
+room to spare, and is self-replenishing because winning days pay *in*. It is
+drawn down only during a losing run — the worst two-day run is $93,705 (9.4%),
+which requires selling T-bills (T+1) or drawing on the broker. Note that the
+collateral yield is **additive**, not forgone: the account earns the T-bill yield
+on the whole balance *and* the 13.76% futures overlay, which is why the Sharpe is
+invariant to the assumed cash rate.
+
+The unrecorded cost here is the cash sleeve's yield give-up: ~4% of capital at
+whatever the bill yield is, or roughly **0.08%/year at a 2% rate**. Immaterial
+against 13.76%.
+
+### The cost stack
+
+Per-contract fees are **flat dollars** — the same $2 whether the contract is worth
+$22,000 or $490,000 — and therefore convert to wildly different basis points.
+Assuming $3.50 per contract round turn all-in (brokerage commission + exchange +
+clearing + regulatory):
+
+| contract | notional | flat fees (bp) | half-spread (bp) | total per side |
+|---|---|---|---|---|
+| DAX | $490,000 | 0.04 | 0.13 | **0.16** |
+| S&P e-mini | $275,000 | 0.06 | 0.23 | 0.29 |
+| Gold | $240,000 | 0.07 | 0.21 | 0.28 |
+| Bund | $145,000 | 0.12 | 0.34 | 0.47 |
+| US 10Y | $110,000 | 0.16 | 0.71 | 0.87 |
+| WTI | $75,000 | 0.23 | 0.67 | 0.90 |
+| NatGas | $30,000 | 0.58 | 1.67 | 2.25 |
+| Sugar | $22,400 | 0.78 | 2.50 | 3.28 |
+| Corn | $22,500 | 0.78 | 2.78 | **3.56** |
+
+**Commissions are nearly irrelevant** — at most 0.8 bp, on the smallest contract.
+The cost is the bid-ask spread, and its basis-point value is set by contract
+notional. The half-spread convention measures cost against mid: a market order
+buys at the ask, one half-spread above mid, so a round trip pays the full spread —
+which is consistent with `transaction_costs` charging `Σ|w_t − w_{t−1}|` once per
+side.
+
+So **the 2 bps per side used throughout this log is conservative** — roughly 5×
+too high for the liquid financial futures that carry most of the gross, and
+slightly too low for the small agricultural contracts.
+
+#### Does leverage change cost sensitivity?
+
+Two separable effects, and only one of them is real.
+
+| cost per side | unlevered | constant 4.6× | vol-targeted 15% |
+|---|---|---|---|
+| 2 bps | 0.904 | 0.904 | **0.917** |
+| 5 bps | 0.866 | 0.866 | 0.874 |
+| 10 bps | 0.804 | 0.804 | **0.803** |
+| **spread, 2→10 bps** | **0.100** | **0.100** | **0.114** |
+
+**Constant leverage changes nothing, exactly.** Since
+
+```
+net_L = L·gross − cost·Σ|Δ(L·w)| = L·(gross − cost·Σ|Δw|) = L · net_1
+```
+
+leverage scales numerator and denominator identically and `Sharpe(L·X) = Sharpe(X)`.
+Verified numerically: `max|net_L − 4.57·net_1| = 2.8e-17`. Only annual return
+moves, 3.3% → 14.8%. So the unlevered cost table above transfers to any
+*constant* gearing without adjustment.
+
+That invariance is a property of the **cost model**, not of leverage, and it
+holds only because costs here are strictly proportional to notional traded. Two
+real components break it in opposite directions:
+
+| cost structure | Sharpe at 1× → 10× | why |
+|---|---|---|
+| proportional only (as modelled) | 1.070 → 1.070 | cost/return ratio fixed |
+| plus a **fixed** charge | 1.012 → 1.065 | flat fees diluted by a bigger book |
+| plus **market impact** (`∝ size^1.5`) | 1.059 → 1.033 | trading more moves the price |
+
+Neither is modelled. At $1M the impact term is negligible — the account trades
+fractions of a contract — so the identity is a good approximation there; it
+degrades as size grows. The fixed-fee term works the other way and favours scale.
+Do not read the invariance as a claim that leverage is free.
+
+**Time-varying leverage makes cost bite about 14% harder**, 0.114 against 0.100.
+Mean leverage is 4.40× but two-way turnover rises 4.79× — the extra 0.39× is the
+leverage trade itself, turnover a constant multiplier never generates, incurred
+by moving from 5.50× to 5.38× as the volatility estimate drifts. It is charged at
+full cost while the target pins realised volatility at 15% regardless, so the
+drag hits the numerator with no offsetting reduction in the denominator.
+
+**The consequence is that volatility targeting's Sharpe bonus is cost-fragile.**
+The 0.904 → 0.917 gain attributed to incidental volatility timing under the
+leverage section above is entirely consumed by 10 bps execution (0.803 vs 0.804).
+It survives at futures-like costs and disappears at ETF-like costs — a sharper
+form of the rule that instrument comparisons must use each instrument's own cost.
+
+Two things this does not capture. **Market impact**: the half-spread applies only
+if the order fits inside the resting quote, which is comfortable at $1M and not at
+$1B. And **adverse selection on passive execution**: resting a limit order to earn
+the half-spread instead of paying it works, but fills arrive preferentially when
+the price is about to move against you, so the expected saving is smaller than the
+quoted half-spread.
+
+### Rolls: cost and yield, both excluded
+
+Futures expire. Holding a trend position for nine months means closing the
+expiring contract and opening the next one every quarter or so — same market,
+same direction, same size. The economic position is unchanged; the trade is real.
+
+**Two distinct things are called "roll" and this log needs both named.**
+
+| | what it is | sign |
+|---|---|---|
+| **roll cost** | spread + fees paid to execute the swap | always negative |
+| **roll yield** | the price gap between the expiring and next contract (contango / backwardation) | either — it is a *return*, not a friction |
+
+Roll yield is not a cost. In contango a long holder rolls into a higher price and
+gives that up; in backwardation they collect it. It is the basis of commodity
+carry strategies and a genuine P&L component.
+
+**This construction excludes both.** `mask_roll_returns` deletes the roll-day
+return, because Datastream does not back-adjust and the roll-day `pct_change`
+compares two different instruments — a measured −0.545% mean signed artifact on
+the Bund. `to_monthly` then compounds with `fillna(0.0)`, so **every roll day
+contributes exactly zero return**. That is the right treatment of the data
+artifact and it is the only treatment available from this series, but it means:
+
+- the roll **cost** is never charged — unambiguously flattering;
+- the roll **yield** is never earned — ambiguous in sign, and not recoverable
+  from this data, which carries one stitched series per market rather than the
+  two contract prices a basis calculation needs.
+
+Whether excluding roll yield biases the trend result up or down is **not
+determinable here.** There is a plausible mechanism for it mattering — a
+backwardated market tends to be one that is trending up, so roll yield may
+correlate with the signal — but this sample cannot test it. Flagged, not
+resolved.
+
+The rest of this subsection prices only the *cost* half. `transaction_costs`
+charges `Σ|w_t − w_{t−1}|`, and a roll leaves the weight unchanged, so the model
+sees no trade. Gross-weighted, the basket rolls **4.64 times a year** per market
+(range 3.8 to 12.2):
+
+| annual notional traded, capital = 1 | |
+|---|---|
+| signal turnover (weights changing) | 22.14× |
+| **rolls (position unchanged, trade required)** | **25.88×** |
+
+Roll trading slightly exceeds signal turnover. The mitigant is that a roll
+executes as a **calendar spread** — a single instrument, quoted far tighter than
+two outright legs, with discounted exchange fees — so the right per-roll
+assumption is 0.5–1 bp, not two outright half-spreads:
+
+| per-roll cost | annual drag | Sharpe | ann.ret |
+|---|---|---|---|
+| none (as backtested) | 0.00% | **0.92** | 13.8% |
+| 0.5 bp | 0.13% | 0.91 | 13.6% |
+| 1 bp | 0.26% | 0.90 | 13.5% |
+| 2 bp | 0.52% | 0.88 | 13.2% |
+| 4 bp (upper bound) | 1.04% | 0.85 | 12.6% |
+
+**Verdict: the omission is real but costs 0.01–0.02 Sharpe** at realistic
+calendar-spread pricing, and it is more than offset by the 2 bps outright
+assumption being ~5× too conservative on the contracts carrying most of the
+gross. The two modelling errors point in opposite directions and roughly cancel.
+That is luck, not design, and both should be priced explicitly in any future
+version.
+
+### Integer contracts: a $1M account cannot hold this book
+
+Futures trade in whole contracts. At $1M and the most recent weights, several
+positions are fractions of one contract:
+
+| market | notional implied | contract size | contracts |
+|---|---|---|---|
+| DAX | $107,937 | ~$490,000 | **0.22** |
+| NIKKEI225 | $58,055 | ~$150,000 | 0.39 |
+| COPPER | $103,967 | ~$225,000 | 0.46 |
+| SPI200 | $136,503 | ~$180,000 | 0.76 |
+| ESTOXX50 | $108,537 | ~$60,000 | 1.81 |
+| BUND | $387,867 | ~$145,000 | 2.67 |
+
+Rounding to whole contracts means either dropping those markets — which destroys
+the breadth the whole result rests on — or holding them at 0 or 1, which is a
+±100% sizing error on the position. Neither is what the backtest assumes.
+
+The practical thresholds: micro and mini contracts exist for several of these
+(Micro E-mini equity indices, MicroBund) and push the minimum viable account down
+substantially, but not for all 35. Trading this basket at full breadth with
+sizing error under ~10% requires roughly **$10–20M**. Below that, the honest
+version is a reduced basket, and the reduced-basket Sharpe is not measured
+anywhere in this log.
+
+This is the single largest gap between these results and a $1M account, and it is
+larger than every cost effect in this section combined.
 
 ## What this sample can and cannot establish
 
@@ -906,12 +1774,39 @@ every asset class.
   rather than 0.90.
 - **Returns are local-currency**, with no FX hedging cost for the 23 non-USD
   markets.
-- **Basket survivorship.** The 35 markets were selected for having long, clean
-  Datastream histories. Contracts that were delisted or never got liquid are
-  absent, and the FX leg is thin because the FINEX contracts died.
+- **Basket survivorship, at both ends.** The 35 markets were selected for having
+  long, clean Datastream histories. Contracts that were delisted or never got
+  liquid are absent, and the FX leg is thin because the FINEX contracts died. At
+  the *recent* end, seven series stop carrying prices before 2026-08 (gold and
+  silver from 2022-11, the four US Treasuries from 2025-04, natural gas from
+  2026-04), so the live basket is 28 markets, not 35 — see *Seven series die
+  before the sample ends* above. Precious metals, which the speed grouping rests
+  on, have no data for the final 3.8 years.
 - **No fees.** A real CTA charging 2/20 would turn a 0.90 gross Sharpe into
   roughly 0.5–0.6 net to the investor. Running it yourself avoids that, which is
   the main argument for doing so.
+- **Roll days are treated as return-neutral, in both directions.** Roll-day
+  returns are masked (correctly — Datastream does not back-adjust) and compounded
+  as zero, so neither the roll **cost** nor the roll **yield** enters. The cost
+  omission flatters: roll trading is 25.9×/year of notional against 22.1× from
+  the signal, worth 0.01–0.02 Sharpe as calendar spreads or 0.07 as paired
+  outright trades. The yield omission is ambiguous in sign and untestable on a
+  single stitched series per market.
+- **Integer contracts are ignored.** Weights are continuous. At $1M several
+  positions are fractions of a contract (DAX 0.22), so the backtested basket is
+  not holdable below roughly $10–20M. This is the largest single gap between
+  these results and a small account — larger than every cost effect combined.
+- **Margin is estimated, not quoted, and the proxy is not an industry method.**
+  The risk-based figures use `3.5 × daily standard deviation × notional`. Real
+  clearinghouses run scenario engines (SPAN, SPAN 2, Eurex Prisma, OCC STANS);
+  only the 99%/two-day *target* is conventional. The proxy ignores SPAN
+  inter-commodity credits (pushing the estimate down) and, more importantly,
+  ignores mandated **anti-procyclicality** — floors, stress buffers and long
+  lookbacks that stop requirements falling in calm markets. Under a
+  `max(126d, 10y)` floor plus a 25% buffer the worst month rises from 14% to 26%
+  of the trend allocation. No margin parameter files were consulted.
+- **No cash-buffer drag.** Variation margin settles in cash, so a real account
+  holds ~4% in cash rather than bills. Worth ~0.08%/year at a 2% bill yield.
 
 ## Takeaways
 
@@ -957,7 +1852,8 @@ every asset class.
     lookback — the largest practical gain, though still an in-sample figure.
 11. **Standalone Sharpe understates the strategy — but only levered.** At 40%
     weight, with the trend leg volatility-targeted to 15% (median 4.6× notional
-    in that leg, ~9% of portfolio capital in margin), the recommended blend lifts
+    in that leg — ~9% of portfolio capital in margin typically, but 27% at the
+    95th percentile, which is the number to fund), the recommended blend lifts
     a portfolio from 0.63 to 1.02 and cuts the drawdown from −38% to −15% while
     *raising* return (10.7% → 11.4%). **Unlevered the same allocation gives up a
     third of the return** (7.6%), because a 3.2%-volatility leg cannot contribute

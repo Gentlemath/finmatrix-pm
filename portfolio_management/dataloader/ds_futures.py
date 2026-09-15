@@ -54,6 +54,94 @@ CZNCS01 (US 10Y T-Note, roll 1) holds 1,401 rows starting 2024; CZNCS00 holds
 33,512 starting 1998. So a mnemonic is always resolved to the
 ``calcseriescode`` with the MOST rows, never to whichever row comes back first.
 
+**4. A series can stop carrying prices while still emitting rows.** After a
+series goes quiet, ``wrds_fut_series`` keeps returning rows for it with
+``settlement`` NULL. Gold (CZGCS00) has 13 such rows spread over 3.6 years, so
+``max(date_)`` reads 2026-06-26 while the last real price is 2022-11-30. Nor is
+the series flagged ``DEAD`` in ``calcseriesname`` — Datastream does use that flag,
+just not here. **So neither the catalogue nor ``max(date_)`` detects staleness.**
+The only reliable test is::
+
+    max(date_) filter (where settlement is not null)
+
+Measured 2026-09-09, seven of the 35 basket markets are stale at the recent end:
+GOLD and SILVER end 2022-11-30, US2Y/US5Y/US10Y/US30Y all end 2025-04-25, and
+NATGAS ends 2026-04-02. ``fetch_series`` handles this correctly
+(``dropna(subset=["px"])`` discards the NULL rows), so the truncation is real
+data loss, not a bug here.
+
+**5. A market has SEVERAL classes; the continuous series pins it to ONE, and for
+the CME markets that one is deprecated.** The hierarchy is
+instrument -> class (``clscode``) -> contract -> prices. ``clscode`` appears in
+both ``wrds_cseries_info`` and ``wrds_contract_info``, so it links a series to
+its contracts -- but it is NOT one-to-one with the instrument. Six basket markets
+point at a dead class while a live one exists::
+
+    market  basket cls   better cls   months            mnem family
+    SILVER   3607         1574        218 ->  639       1973-01 ..
+    GOLD      335         1508        218 ->  584       1977-08 ..
+    US30Y     330         2441 (CUB)  319 ->  584       1977-08 ..
+    US10Y     338         3896 (CTT)  318 ->  527       1982-05 ..
+    US5Y      334         1997 (CTF)  318 ->  455       1988-05 ..
+    US2Y      342         2523 (CTE)  319 ->  430       1990-06 ..
+
+The US notes hide under a SECOND naming family: the basket's classes are named
+"10 YEAR US TREASURY NOTE" while the live ones are "10 YRS US T-NOTE COMP.".
+Searching by the basket's own contrname will never find them.
+
+When swapping a class, verify ``isocurrcode`` AND the dsmnem prefix, not the
+name. Matching on contrname alone flags ICE UK gas (GBP, LNG) as an "upgrade" to
+NYMEX Henry Hub (USD, NNG), and Tokyo corn (JPY, JCN) as an upgrade to MATIF corn
+(EUR, PCO). All CME classes still stop at 2026-04-03.
+
+**6. THE CONTINUOUS-SERIES TABLES NO LONGER CARRY CME GROUP DATA.** The seven
+stale markets are exactly the seven CME Group markets in the basket -- 7 of 7
+dead, against 28 of 28 live on other exchanges. A survey of every series priced
+after 2026-06-01 (checked 2026-09-09) returns 40 exchange prefixes with 3+ such
+continuous series (EUREX 328, NSE,
+LIFFE, BSE, MEFF, HKFE, KSE, ICE, SFE, LME, TOCOM, ME, SGX, TAIFEX, MATIF, ...)
+and NO CME, CBOT, ECBOT, COMEX, NYL or NYMEX entry anywhere. Withdrawal is
+staggered by exchange: COMEX 2022-11, CBOT 2025-04, NYMEX 2026-04.
+
+Do not go looking for these under new mnemonics -- they are not present under any
+name IN THE CONTINUOUS-SERIES TABLES.
+
+**But the CONTRACT-level tables still have CME.** ``wrds_contract_info`` /
+``wrds_fut_contract`` hold 2,231 NYMEX, 679 CME, 559 CME E and 425 ECBOT
+contracts, every one carrying settlements, with ``volume`` and ``openinterest``
+populated. History far exceeds the derived series -- COMEX gold from 1977-08
+(821 contracts) against the CS00 series' 2004-10; CBOT 10Y from 1982-05. All CME
+markets stop at 2026-04-03, so the contract feed ceased too, just later and all
+at once. Front-month open interest confirms identity: US5Y peaks at 6.8M
+contracts, US10Y at 5.6M.
+
+Rebuilding continuous series from contracts would fix three things this module
+currently cannot: roll returns would be computable instead of masked (see
+pitfall 2), the roll rule would be ours to choose and could follow open interest
+rather than the calendar, and gold's history nearly triples. Traps: resolve
+contract names as carefully as series names (gold has a retired ``CZG*`` family,
+``CZG0626`` last priced 2021-12-13 with zero OI, beside the live ``NGC*``), and
+a ``SILVER%`` name match also returns TOCOM/DGCX/MCX contracts.
+
+If staying on the continuous series, substitutes on other exchanges, with LONGER
+history than the COMEX series had, and in local currency per this module's
+convention::
+
+    GOLD    JAUCS00  TOCOM-GOLD (JPY)          1986-06 ..  9,832 obs
+    SILVER  JSVCS00  TOCOM-SILVER (JPY)        1984-01 .. 10,437 obs
+    NATGAS  LNGCS00  ICE-NATURAL GAS (GBP)     1997-02 ..  7,570 obs
+
+US rates have no substitute; no US-exchange bond future survives here. For
+sovereign breadth instead: AGDCS00 (SFE AU 10Y, 1984-12, 10,580), CDGCS00
+(ME Canada 10Y, 1989-09, 9,128), KTBCS00 (KSE Korea 3Y, 1999-09, 6,642),
+CGZCS00 (ME Canada 2Y, 2004-05, 5,533).
+
+Note AGDCS00 above: the "Dropped ... AUS10Y (~700 rows everywhere)" comment below
+is WRONG. The original search used the AUS3Y naming pattern
+("SFE-AUST 3 YEAR T-BOND") but the ten-year is "SFE-AU 10 YR T-BOND DAY CONT", so
+a 42-year series was missed. Search calcseriesname broadly, never by analogy to a
+sibling contract's name.
+
 **Currency.** Returns are in each contract's LOCAL currency (Bund in EUR, Nikkei
 in JPY). That is the standard convention for futures trend research — margin is
 posted locally and FX exposure is a separate decision — but these are not USD
@@ -67,6 +155,139 @@ import pandas as pd
 
 SCHEMA = "tr_ds_fut"
 VALUE_ROW = "Value_"          # the only _name_ that carries the time series
+
+# ---------------------------------------------------------------------------
+# PLANNED REBUILD: 35 -> 46 markets. Decided 2026-09-10, extended 2026-09-10
+# with FX and the US equity index. NOT YET EXECUTED.
+#
+# The basket below is keyed by dsmnem, which pins each market to ONE clscode.
+# Six of those classes are deprecated while a live class for the same instrument
+# exists (pitfall 5), and eleven live markets are missing entirely. Executing
+# this needs each clscode resolved to its CS00 dsmnem first -- the mnemonics
+# below are class families, not series names.
+#
+# KEY TO FINDING ANY OF THIS: the live CME classes sit in a naming family ending
+# "COMP." -- "JAPANESE YEN COMP.", "STERLING COMP.", "10 YRS US T-NOTE COMP." --
+# while the deprecated ones use the plain product name. Searching by the
+# basket's own contrname finds only the dead ones. Use
+# tools/survey_ds_classes.py, which queries the contract table and so sees
+# every class.
+#
+# A. IDENTITY REPLACEMENTS -- same instrument, dead class -> live class.
+#    Adds ~1,510 market-months and recovers stale tails (metals were stuck at
+#    2022-11, bonds at 2025-04).
+#
+#      market   from cls   to cls          new coverage        months
+#      SILVER   3607       1574            1973-01 .. 2026-04  218 -> 639
+#      GOLD      335       1508            1977-08 .. 2026-04  217 -> 584
+#      US30Y     330       2441 (CUB)      1977-08 .. 2026-04  319 -> 584
+#      US10Y     338       3896 (CTT)      1982-05 .. 2026-04  318 -> 527
+#      US5Y      334       1997 (CTF)      1988-05 .. 2026-04  318 -> 455
+#      US2Y      342       2523 (CTE)      1990-06 .. 2026-04  319 -> 430
+#
+# B. FX -- the leg that most needs it: 2 markets today, and FX correlates -0.01
+#    with the rest of the book, so it is the most valuable class per market and
+#    the most under-supplied. All six are CME, all in the COMP. family, all
+#    stop 2026-04-03. Three of them start 1973-01, when Bretton Woods collapsed
+#    and the IMM began listing currency futures -- longer than ANY market
+#    currently in the basket.
+#
+#      clscode  mnem  pair      coverage             months
+#      2125     IJC   JPY/USD   1973-01 .. 2026-04   639
+#      2094     IFC   CHF/USD   1973-01 .. 2026-04   639
+#      2072     ICE   CAD/USD   1973-01 .. 2026-04   639
+#      2059     IBC   GBP/USD   1975-10 .. 2026-04   605
+#      2047     IAE   AUD/USD   1987-01 .. 2026-04   471
+#      1999     CUC   EUR/USD   1998-05 .. 2026-04   334
+#
+#    EUR starts 1998-05 because the euro did not exist earlier; Deutsche Mark
+#    futures are a different instrument, not deeper history for this one.
+#
+#    Redundancy to settle with the correlation check, not by argument:
+#      - USDINDEX (kept) is 58% EUR, 14% JPY, 12% GBP, 9% CAD, 4% CHF. Four of
+#        the six additions are inside it. Keeping it anyway because it is FINEX,
+#        survives to 2026-08, and is the only FX signal in the last five months.
+#      - GBPJPY (kept) becomes roughly (GBP/USD)/(JPY/USD) once both legs are in
+#        the basket -- near-linear dependence. Its case is also recency.
+#
+#    A parallel set of non-CME pairs IS live to 2026-09 but starts much later:
+#      1576 NSP GBP 2004-02, 94 BAU AUD 2004-08, 2929 NKU EUR 2011-06,
+#      2924 NKA AUD 2011-06, 4163 SXU AUD/SGX 2013-11.
+#    Useful only if a spliced tail past 2026-04 is wanted; separate work.
+#
+# C. US EQUITY INDEX -- the basket has seven equity indices and none in the US,
+#    while SPY's standalone trend Sharpe was +0.55 over 2006-2026 against +0.01
+#    for those seven. The E-mini exists; it is simply not named "E-mini":
+#
+#      clscode  mnem  contrname             coverage             months
+#      1035     ISM   MINI S&P 500 INDEX    1997-09 .. 2026-04   343
+#
+#    Confirmed by three facts: prices start 1997-09 (the E-mini listed
+#    1997-09-09), 137 contracts over 343 months is quarterly, and searching
+#    "E-MINI" returns Russell/FTSE/sector/Micro/ESG variants but no plain S&P.
+#
+#    Deeper history is available but needs splicing, which is separate work:
+#      3725 ISP  "S&P 500 INDEX"  1982-04 .. 2021-09-17, 473 months
+#    ISP is the full-size contract CME delisted in September 2021. ISP + ISM
+#    spliced would cover 1982-04 .. 2026-04, ~529 months. Do NOT put both in
+#    the basket as separate markets: same underlying index, different contract
+#    size, so that is double-counting (see the identity-rule refinement below).
+#
+# D. OTHER ADDITIONS -- different markets, all live to 2026-09, all non-CME.
+#    Added rather than swapped in: breadth has repeatedly come from the
+#    uncorrelated legs, not from any single market's history length. Dropping
+#    agriculture alone cost 0.72 -> 0.63 Sharpe.
+#
+#      clscode  ccy  mnem  market                coverage             class
+#      3756     GBP  LNG   ICE UK natural gas    1997-01 .. 2026-09   energy
+#      1405     USD  MMW   wheat                 1978-04 .. 2026-09   ag
+#      2216     JPY  JCN   Tokyo corn            1992-04 .. 2026-09   ag
+#      3846     ZAR  SAC   SAFEX wheat           1997-11 .. 2026-09   ag
+#
+# RESULT: equity 7->8, bond 10, fx 2->8, energy 3->4, metal 6, ag 7->10.
+#         35 -> 46 markets. Panel start 1979-01 -> 1973-01, with five markets
+#         live in 1973 (silver, JPY, CHF, CAD, and CBOT corn if added).
+#         This is aimed squarely at the study's weakest point: the 1979-1989
+#         decade currently holds 4-10 markets and its slow group is GILT alone,
+#         which is why the three-speed margin there is +0.10 against +0.37 to
+#         +0.82 in every other decade.
+#
+# E. IDENTITY-RULE REFINEMENT. The working rule -- same currency AND same
+#    mnemonic prefix means the same instrument, anything else is a different
+#    market -- correctly stopped ICE UK gas being swapped for Henry Hub and
+#    Tokyo corn for MATIF corn. But it needs one amendment: a different prefix
+#    can also mean the SAME underlying at a different contract size.
+#      ISP / ISM  (S&P 500 full-size vs E-mini)
+#      IJC / IJE  (yen standard vs E-mini)
+#      CUC / IEE  (euro standard vs E-mini)
+#    Those pairs must be spliced or one chosen, never both listed. Decide by
+#    what the contrname says the underlying is, not by the prefix alone. Where
+#    one was chosen here it was the longer, more heavily traded standard-size
+#    class: IJC over IJE (639 vs 318 months), CUC over IEE (334 vs 315).
+#
+# F. REJECTED
+#      2010 CNY DC.  Dalian corn -- excluded by choice
+#      2420 USD CCF  CBOT corn, 639 months from 1973-01, but dies 2026-04-03
+#                    with the rest of CME; longest history in the whole survey
+#      NATGAS        1539 USD NNG is already the best Henry Hub class; the GBP
+#                    classes are ICE UK gas, a different market
+#
+# G. BEFORE COMMITTING: check each candidate's mean |correlation| against the
+#    existing basket. The basket averages 0.24; a candidate above that dilutes
+#    effective breadth instead of adding to it. Three specific risks:
+#      - MMW / JCN / SAC are all grains and may be currency-translated views of
+#        one global grain complex.
+#      - Four of the six FX additions sit inside USDINDEX by construction.
+#      - GBPJPY is near-linearly dependent on the GBP and JPY legs.
+#    Also unverified: which exchange MMW actually is. What the data shows is
+#    USD, 1978-04, 1 day stale -- so not in the CME withdrawal, whatever it is.
+#
+# H. WHAT THIS REBUILD STILL DOES NOT FIX. Every CME class stops 2026-04-03, so
+#    the additions in B and C bring history, not recency: after 2026-04 there is
+#    still no US rates, metals, Henry Hub gas, US equity index or major FX pair.
+#    Only 28 of the current 35 markets are priced in the latest month; after the
+#    rebuild that becomes 32 of 46.
+# ---------------------------------------------------------------------------
 
 # Chosen by measurement, not assumption - see tools/compare_ds_roll_methods.py
 # and local_data/ds_roll_comparison.csv. Across all 39 candidate markets and the
@@ -88,7 +309,9 @@ VALUE_ROW = "Value_"          # the only _name_ that carries the time series
 # still front-contract rolls and roll-day returns are masked anyway; recorded
 # here so it is not forgotten.
 #
-# Dropped (no usable variant in CS00-CS03): AUS10Y (~700 rows everywhere) and
+# Dropped (no usable variant in CS00-CS03): AUS10Y -- WRONG, see pitfall 5 in the
+# module docstring: AGDCS00 has 10,580 rows from 1984-12 and was missed by a
+# naming mismatch. Should be added back. Also dropped:
 # the FINEX FX contracts EURUSD (ends 2008-01), USDCHF and USDJPY (end 2019-04),
 # which were delisted. The FX leg is therefore thin - USDINDEX (a basket) and
 # GBPJPY only - and that is this basket's weakest asset class.
@@ -140,7 +363,8 @@ BASKET = {
 # -- resolution ------------------------------------------------------------
 
 
-def resolve_series(loader, mnemonics: Optional[Iterable[str]] = None) -> pd.DataFrame:
+def resolve_series(loader, mnemonics: Optional[Iterable[str]] = None,
+                   basket: Optional[Dict[str, tuple]] = None) -> pd.DataFrame:
     """Map each dsmnem to the ``calcseriescode`` with the MOST observations.
 
     dsmnem is not unique in ``wrds_cseries_info``, and some duplicates are
@@ -151,7 +375,12 @@ def resolve_series(loader, mnemonics: Optional[Iterable[str]] = None) -> pd.Data
 
     Returns one row per mnemonic with ``label`` and ``asset_class`` attached.
     """
-    mnems = tuple(mnemonics if mnemonics is not None else BASKET)
+    # ``basket`` supplies the label/asset-class mapping. It defaults to BASKET,
+    # but a caller assembling a DIFFERENT basket must be able to pass its own or
+    # every market outside BASKET silently comes back labelled with its raw
+    # mnemonic and an asset class of "?".
+    names = basket if basket is not None else BASKET
+    mnems = tuple(mnemonics if mnemonics is not None else names)
     got = loader.raw_sql(f"""
         select i.calcseriescode, i.dsmnem, i.calcseriesname, i.isocurrcode,
                (select count(*) from {SCHEMA}.wrds_fut_series v
@@ -167,9 +396,9 @@ def resolve_series(loader, mnemonics: Optional[Iterable[str]] = None) -> pd.Data
     got = (got.sort_values("n_rows")
               .drop_duplicates("dsmnem", keep="last")
               .reset_index(drop=True))
-    got["label"] = got["dsmnem"].map(lambda m: BASKET[m][1] if m in BASKET else m)
+    got["label"] = got["dsmnem"].map(lambda m: names[m][1] if m in names else m)
     got["asset_class"] = got["dsmnem"].map(
-        lambda m: BASKET[m][0] if m in BASKET else "?")
+        lambda m: names[m][0] if m in names else "?")
     return got.sort_values(["asset_class", "label"]).reset_index(drop=True)
 
 
@@ -298,7 +527,7 @@ def build_panels(loader, basket: Optional[Dict[str, tuple]] = None,
     basket = basket or BASKET
     meta_rows, daily, suspect = [], {}, []
 
-    info = resolve_series(loader, basket)
+    info = resolve_series(loader, basket, basket=basket)
     if verbose:
         missing = sorted(set(basket) - set(info["dsmnem"]))
         if missing:
