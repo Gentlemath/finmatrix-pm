@@ -1,4 +1,14 @@
-# Trend research log
+# Trend research log — dataset v1
+
+> **This document is frozen.** It records what was found on **dataset v1**: the
+> 35-market futures basket read from Datastream's own continuous series
+> (1979–2026), plus the earlier 10-ETF basket. Every number here was produced on
+> that data and stays reproducible — `python examples/trend_demo.py --dataset 1`.
+>
+> The basket was rebuilt to 51 markets starting 1973-01, half of it constructed
+> from contract-level data. Results on it, and the full description of what
+> changed and why, are in **[trend-research-log-v2.md](trend-research-log-v2.md)**.
+> Nothing below has been re-run on v2; do not mix numbers across the two.
 
 Findings from backtesting `TimeSeriesMomentum` on two baskets: **35 cross-asset
 futures, 1979–2026** (WRDS Datastream, the primary sample) and **10 liquid ETFs,
