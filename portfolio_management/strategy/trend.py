@@ -288,26 +288,125 @@ class TimeSeriesMomentum:
 #: they are priced off real rates and the dollar, not off inventory. Getting this
 #: split wrong is what made the first version of the grouping fail on a second
 #: basket — see the module docstring.
+#: FROZEN. This is the list as it stood when GROUPING_V1 was learned, and it is
+#: deliberately incomplete: platinum is a precious metal, trends like one, and is
+#: NOT here. It is added in GROUPING_V2's own overrides instead (see there).
+#:
+#: The reason is not that editing this would disturb v1 results -- the v1 basket
+#: holds no platinum, so on that data the edit changes nothing at all. It is that
+#: GROUPING_V1 serves as the BASELINE in every v2 comparison, standing for "a
+#: prior fixed before the current data and untouched since".
+#:
+#: "Independent" would be too strong and was used too loosely at first. This
+#: grouping was chosen on the v1 full sample -- the v1 research log records the
+#: search: a two-speed split was tried, it failed to replicate on the ETF
+#: basket, and it was changed to three speeds. So on v1 data it is contaminated
+#: outright, and on v2 it is only partly clean: 20 markets and the years
+#: 1973-1979 are genuinely new to it, while the other 30 markets over 1979-2026
+#: were visible when it was chosen. What it has over a per-window refit is far
+#: FEWER passes over the data, not zero.
+#: Adding platinum because v2 data suggests it would inject v2 information into
+#: the very baseline used to test whether injecting v2 information helps, and
+#: §10.3 of the v2 research log -- learning loses to not-learning on all three
+#: panels -- rests on that baseline being clean. Measured: the edit moves the
+#: v1-grouping baseline on v2 data from 0.821 to 0.744.
+#:
+#: So the name is inaccurate on purpose. Read it as "the precious-metal overrides
+#: v1 shipped with", not as a definition of the term.
 PRECIOUS_METALS = frozenset({"GOLD", "SILVER", "GLD", "SLV", "XAU", "XAG"})
 
 
-def speed_group(asset: str, asset_class: str) -> str:
+#: The grouping learned on the 35-market futures basket and the 10-ETF basket.
+#: A grouping is DATA, not code: ``by_asset`` overrides ``by_class``, and
+#: ``default`` catches anything unlisted (``None`` raises instead, which is what
+#: a grouping intended to be exhaustive should use). Keeping it as a value means
+#: a re-learned grouping, and the reversed grouping used to falsify it, are
+#: alternative values of one mechanism rather than three copies of a function.
+GROUPING_V1 = {
+    "by_asset": {m: "slow" for m in PRECIOUS_METALS},
+    "by_class": {"bond": "slow", "equity": "mid", "fx": "mid",
+                 "energy": "fast", "metal": "fast", "ag": "fast"},
+    "default": "fast",
+}
+
+
+#: The v1 grouping with its one hole filled. ``livestock`` was absent from the
+#: class map, so cattle and hogs fell to the commodity default of 3 months --
+#: where their trend Sharpe is NEGATIVE (-0.01 at 3m, 0.05 at 6m, against 0.21
+#: at 9m). Moving them off 3m lifts the walk-forward out-of-sample Sharpe of the
+#: whole basket from 0.88 to 0.91, and 9m, 12m and 18m all give the same 0.91:
+#: the gain is in leaving 3m, not in locating an optimum. Two markets move the
+#: portfolio that much because they are its least correlated -- lean hogs has a
+#: mean |correlation| of 0.063 to the rest against a basket average of 0.184 --
+#: so their marginal contribution per unit of weight is unusually high.
+#:
+#: ``slow`` rather than a fourth speed keeps the set at 18/9/3.
+#:
+#: ``default`` is None so that an unlisted asset class RAISES. Livestock's three
+#: decades in the wrong bucket were the cost of a silent fallback, and the next
+#: new class should be a question rather than a commodity.
+#: Platinum, added here rather than to PRECIOUS_METALS. The v1 basket contains
+#: no platinum, so editing that frozenset would change nothing on v1 data -- but
+#: GROUPING_V1 is also the baseline for every v2 comparison, and on v2 data the
+#: edit moves it from 0.821 to 0.744. See the note on PRECIOUS_METALS.
+#:
+#: The evidence is the SHAPE of its lookback profile, not an argmax whose margin
+#: (0.05) is inside the noise. Platinum's 12-month Sharpe exceeds its 3-month by
+#: +0.15, ahead of silver's +0.12, while all four base metals fall between -0.15
+#: and +0.03. Its profile correlates +0.70 with gold and silver and only +0.22
+#: with the base metals -- which themselves correlate -0.17 with gold and silver.
+#:
+#: Palladium, before it was dropped on liquidity, tilted the other way at -0.04,
+#: matching a demand base that is roughly 85% autocatalyst against platinum's
+#: 40%. Behaviour and demand structure agree on both metals.
+#:
+#: Portfolio impact is nil: walk-forward out-of-sample Sharpe is 0.90 with
+#: platinum fast and 0.89-0.90 at every slower speed. This is a consistency
+#: change, made because the override exists to hold metals that trend slowly and
+#: platinum is one, not because it pays.
+GROUPING_V2 = {
+    "by_asset": {**{m: "slow" for m in PRECIOUS_METALS}, "PLATINUM": "slow"},
+    "by_class": {"bond": "slow", "livestock": "slow",
+                 "equity": "mid", "fx": "mid",
+                 "energy": "fast", "metal": "fast", "ag": "fast"},
+    "default": None,
+}
+
+
+def speed_group(asset: str, asset_class: str,
+                grouping: Optional[Dict] = None) -> str:
     """Which trend-speed group an asset belongs to: ``slow``, ``mid`` or ``fast``.
 
-    The grouping measured best on both a 35-futures and a 10-ETF basket. Pair it
-    with :data:`TREND_SPEEDS` via :func:`lookback_by_group`.
+    Pair it with :data:`TREND_SPEEDS` via :func:`lookback_by_group`.
 
     Args:
-        asset: the market's name, checked against :data:`PRECIOUS_METALS`.
-        asset_class: one of ``bond``, ``equity``, ``fx``, ``energy``, ``metal``,
-            ``ag``. Anything unrecognised falls to ``fast``, which is the
-            commodity default.
+        asset: the market's name, matched case-insensitively against the
+            grouping's ``by_asset`` overrides.
+        asset_class: ``bond``, ``equity``, ``fx``, ``energy``, ``metal``,
+            ``ag``, ... looked up in ``by_class``.
+        grouping: a grouping dict; defaults to :data:`GROUPING_V1`, which was
+            learned on a 35-market basket that had no livestock and no platinum
+            or palladium. Pass a different one rather than editing this, so that
+            earlier results stay reproducible.
+
+    Raises:
+        KeyError: if the class is unlisted and the grouping sets no ``default``.
+            An exhaustive grouping should prefer that to silently defaulting --
+            an unlisted class is a question, not a commodity.
     """
-    if asset_class == "bond" or asset.upper() in PRECIOUS_METALS:
-        return "slow"
-    if asset_class in ("equity", "fx"):
-        return "mid"
-    return "fast"
+    g = grouping if grouping is not None else GROUPING_V1
+    hit = g.get("by_asset", {}).get(asset.upper())
+    if hit is not None:
+        return hit
+    by_class = g.get("by_class", {})
+    if asset_class in by_class:
+        return by_class[asset_class]
+    default = g.get("default")
+    if default is None:
+        raise KeyError(
+            f"asset_class {asset_class!r} (asset {asset!r}) is not in this "
+            f"grouping and it sets no default; add it explicitly")
+    return default
 
 
 #: Lookback periods (months) that measured best per speed group on both the

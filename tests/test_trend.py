@@ -5,6 +5,9 @@ import pandas as pd
 import pytest
 
 from portfolio_management.strategy import (
+    GROUPING_V1,
+    GROUPING_V2,
+    PRECIOUS_METALS,
     TREND_SPEEDS,
     TimeSeriesMomentum,
     lookback_by_group,
@@ -293,3 +296,56 @@ class TestSpeedGroup:
         assert lb["BUND"] == lb["GOLD"] == TREND_SPEEDS["slow"]
         assert lb["COPPER"] == TREND_SPEEDS["fast"]
         assert lb["DAX"] == TREND_SPEEDS["mid"]
+
+
+def test_grouping_v2_differs_from_v1_only_in_livestock():
+    """The v2 grouping is v1 with one hole filled, not a re-fit.
+
+    Livestock was absent from v1's class map and fell to the commodity default
+    of 3 months, where its trend Sharpe is negative. Every other class must be
+    untouched, or the change stops being the targeted correction it is claimed
+    to be.
+    """
+    classes = ("bond", "equity", "fx", "energy", "metal", "ag", "livestock")
+    differ = [c for c in classes
+              if speed_group("X", c, GROUPING_V1)
+              != speed_group("X", c, GROUPING_V2)]
+    assert differ == ["livestock"]
+    assert speed_group("LEANHOGS", "livestock", GROUPING_V2) == "slow"
+    assert speed_group("LEANHOGS", "livestock", GROUPING_V1) == "fast"
+
+
+def test_grouping_v2_raises_on_an_unlisted_class():
+    """A silent fallback is what put livestock in the wrong bucket for decades."""
+    with pytest.raises(KeyError):
+        speed_group("SOMETHING", "crypto", GROUPING_V2)
+    # v1 keeps its default, so earlier results stay reproducible
+    assert speed_group("SOMETHING", "crypto", GROUPING_V1) == "fast"
+
+
+def test_precious_metals_override_survives_in_v2():
+    """The precious metals are slow; the base metals stay fast.
+
+    Platinum joins gold and silver in v2 -- its lookback profile correlates
+    +0.70 with theirs against +0.22 with the base metals. Palladium, whose
+    demand is roughly 85% autocatalyst, tilts the other way and stays fast.
+    """
+    for metal in ("GOLD", "SILVER", "PLATINUM"):
+        assert speed_group(metal, "metal", GROUPING_V2) == "slow"
+    for metal in ("COPPER", "ZINC", "NICKEL", "ALUMINIUM", "PALLADIUM"):
+        assert speed_group(metal, "metal", GROUPING_V2) == "fast"
+
+
+def test_platinum_is_slow_in_v2_without_disturbing_v1():
+    """Platinum joins the slow overrides; v1 must be untouched.
+
+    Editing PRECIOUS_METALS itself would change GROUPING_V1 too, and every v2
+    result is reported against GROUPING_V1 as a baseline.
+    """
+    assert speed_group("PLATINUM", "metal", GROUPING_V2) == "slow"
+    assert speed_group("PLATINUM", "metal", GROUPING_V1) == "fast"
+    assert "PLATINUM" not in PRECIOUS_METALS
+    # the base metals stay fast in both
+    for metal in ("COPPER", "ZINC", "NICKEL", "ALUMINIUM"):
+        assert speed_group(metal, "metal", GROUPING_V2) == "fast"
+        assert speed_group(metal, "metal", GROUPING_V1) == "fast"

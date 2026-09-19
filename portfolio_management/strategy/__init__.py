@@ -3,6 +3,8 @@
 from .momentum import MomentumStrategy
 from .pead import analyst_sue, event_car, standardized_unexpected_earnings
 from .trend import (
+    GROUPING_V1,
+    GROUPING_V2,
     PRECIOUS_METALS,
     TREND_SPEEDS,
     TimeSeriesMomentum,
@@ -24,6 +26,8 @@ from .universe import build_membership, panels_from_crsp
 
 __all__ = [
     "MomentumStrategy",
+    "GROUPING_V1",
+    "GROUPING_V2",
     "PRECIOUS_METALS",
     "TREND_SPEEDS",
     "TimeSeriesMomentum",
