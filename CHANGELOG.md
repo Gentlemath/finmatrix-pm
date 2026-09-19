@@ -23,8 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   basket: slow 18m for bonds and **precious** metals, mid 9m for equity indices
   and FX, fast 3m for energy, **industrial** metals and agriculture. The
   precious/industrial split inside "metals" is the load-bearing part — gold
-  optimises at 12m against copper's 3m. Reversing the grouping halves the Sharpe,
-  which is the evidence it is an ordering rather than a fit.
+  optimises at 12m against copper's 3m. Reversing the grouping costs 31–49% of
+  the Sharpe depending on dataset and window, which is the evidence it is an
+  ordering rather than a fit. (An earlier version of this line said "halves",
+  true only of v1's full sample.)
 - **Mixed-frequency volatility** in `TimeSeriesMomentum.backtest`: optional
   `vol_returns` / `vol_periods_per_year` estimate risk on a higher-frequency
   panel (e.g. daily) while still rebalancing on the low-frequency clock, so
@@ -69,11 +71,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `examples/cache_etf_data_av.py` (Alpha Vantage variant — monthly or weekly
   adjusted, resumes a partial run, retries through throttles — for networks
   where Yahoo Finance is unreachable).
-- **`tools/`**: one-off WRDS exploration and diagnostics kept out of `examples/`
-  — `select_ds_futures.py` (catalogue browser), `sample_ds_futures.py`
-  (single-series dump for eyeballing rolls), `explore_wrds_futures.py` (library
-  discovery) and `compare_ds_roll_methods.py`, which is the reproducible evidence
-  for choosing the CS00 roll convention.
+- **`tools/`**: WRDS exploration and diagnostics kept out of `examples/`.
+  `survey_ds_classes.py` searches the CONTRACT table and so sees live classes
+  that the series table hides; `find_ds_series_by_name.py` is its complement over
+  continuous series. `check_listing.py` asks which exchange a market is and
+  whether that listing trades; `rank_market_liquidity.py` ranks absolute volume
+  and open interest. `build_contract_series.py`, `diagnose_contract_coverage.py`
+  and `verify_basket_candidates.py` check a candidate before it enters the
+  basket. `explore_wrds_futures.py` reports what a subscription covers, and
+  `compare_ds_roll_methods.py` is the reproducible evidence for the CS00 roll
+  convention.
+
+- **Contract-level futures construction** (`dataloader/ds_contracts.py`) and the
+  **v2 basket**: 50 markets across 7 classes from 1973-01, against v1's 35 across
+  6 from 1979-01, with 23 series built from individual contracts rather than read
+  from Datastream's continuous series. Effective breadth 9.1 against 8.0 and mean
+  pairwise correlation *down* 0.24 → 0.23, so the additions diversify. Building
+  was not optional: Datastream's continuous series no longer carry CME Group, and
+  the live classes have no continuous series at all. `pick_held` chooses the
+  contract by open interest inside a six-month window; `contract_returns` takes
+  returns within one contract so the roll gap — term structure, not a return —
+  never enters. `examples/cache_futures_data_v2_wrds.py` writes the panels and
+  resumes per market. Two silent defects found on the way: missing `lasttrddate`
+  truncated wheat and lean hogs by thirty years, and uncleaned prices left three
+  ×10,000 spikes that put gasoline's annualised volatility at 8033%.
+- **The speed grouping is data, not code.** `GROUPING_V1` and `GROUPING_V2` are
+  dicts passed to `speed_group(..., grouping=)`, so a re-learned grouping and the
+  reversed one used to falsify it are alternative *values* rather than branches.
+  `GROUPING_V2` adds livestock (absent from v1) and moves platinum to slow.
+- **A proper equity benchmark** (`examples/cache_equity_benchmark_wrds.py`):
+  CRSP index returns joined to Fama-French, giving the US market excess return
+  from 1926 where the SPY ETF began in 2006 and the S&P futures in 1982. The
+  loader returns `(series, rf_annual)` so the cash convention travels with the
+  series it belongs to.
+- **Three studies**: `trend_grouping_study.py` (class portfolios with error
+  bars), `trend_walkforward_study.py` (re-learn every window, trade the next,
+  stitch the disjoint test blocks) and `trend_subset_test.py` (random subsets of
+  v2 against v1). `docs/trend-research-log-v2.md` records the results.
+- **`--dataset`, `--through` and `--start`** on every trend demo and study, so v1
+  and v2 run through one code path — the only way to attribute a difference to
+  the data rather than to a code change.
 
 ### Changed
 
@@ -82,6 +119,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the PEAD commit.
 - `AlphaVantageLoader.get_price` only passes `outputsize` to endpoints that
   accept it, so the `*_Adjusted` intervals (e.g. `"Monthly_Adjusted"`) work.
+
+### Fixed
+
+- **The equity benchmark had cash subtracted twice.** `trend_portfolio_demo.py`
+  removed a flat 1.8%/yr from whatever benchmark it was given, correct for the
+  SPY ETF (a total return) and wrong for the S&P *futures* series, which is
+  already an excess return. It understated the equity Sharpe by 0.11 with no
+  visible symptom. The risk-free rate is now a property of the series.
+- **Its two comparison blocks sat on different periods.** Each dropped months
+  where its own trend leg was missing, and the vol-targeted leg starts a year
+  later, so the "100% equity" row — which contains no trend leg at all — read
+  0.56 in one block and 0.57 in the other. Both now share one window.
+- **`trend_speed_demo.py` narrated a run it had not done**, asserting that
+  reversal halves the Sharpe and worsens drawdown. "Halves" held only on v1's
+  full sample (−49%); elsewhere the cost is 31–36%. "Worsens drawdown" holds on
+  v2 (−4.4% → −7.7%) but fails on v1, where reversal *improves* it (−9.1% →
+  −6.0%) — the direction is not stable, so the text no longer asserts one. It is
+  computed from the run in front of it, and says plainly when the grouping fails
+  to beat uniform 12m, which on the 50-market basket it does.
 
 ## [0.2.0] - 2026-07-21
 
