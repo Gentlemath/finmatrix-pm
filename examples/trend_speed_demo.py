@@ -18,9 +18,11 @@ the grouping were noise, swapping slow and fast would score about the same.
 Full evidence, including out-of-sample tests, is in docs/trend-research-log.md.
 """
 
+import argparse
+
 import numpy as np
 import pandas as pd
-from _trend_data import load_basket
+from _trend_data import add_dataset_arg, load_basket
 
 from portfolio_management.strategy import (
     TREND_SPEEDS, TimeSeriesMomentum, lookback_by_group, speed_group)
@@ -52,14 +54,19 @@ def backtest(m, hf, ppy, lookback):
 
 
 def main() -> None:
-    m, hf, ppy, cls, name = load_basket()
+    opts = add_dataset_arg(argparse.ArgumentParser(description=__doc__)).parse_args()
+    m, hf, ppy, cls, name = load_basket(opts.dataset, opts.through, opts.start)
     groups = {a: speed_group(a, cls.get(a, "?")) for a in m.columns}
     print(f"{name}: {m.index.min():%Y-%m} .. {m.index.max():%Y-%m}\n")
 
     # ---- 1. is the pattern in the raw data? ------------------------------
     print("=== 1. Per-class trend Sharpe by lookback (single markets, unscaled) ===")
     print(f"  {'class':<9}{'n':>3}" + "".join(f"{lb:>7}m" for lb in MENU) + f"{'best':>8}")
-    for c in ("bond", "equity", "fx", "energy", "metal", "ag"):
+    # Classes come from the panel, not a list: v2 added livestock, and a
+    # hard-coded list silently omits a whole asset class from the evidence.
+    ordered = sorted({cls.get(a, "?") for a in m.columns},
+                     key=lambda c: -sum(1 for a in m.columns if cls.get(a) == c))
+    for c in ordered:
         cols = [a for a in m.columns if cls.get(a) == c]
         if not cols:
             continue
@@ -95,14 +102,46 @@ def main() -> None:
         "REVERSED (slow<->fast)": lookback_by_group(
             {a: REVERSE[g] for a, g in groups.items()}, TREND_SPEEDS),
     }
+    got = {}
     for label, lb in variants.items():
         net, w = backtest(m, hf, ppy, lb)
         s = performance_summary(net, periods_per_year=12)
+        got[label] = (s["sharpe"], s["max_drawdown"], turnover(w)["annualized"])
         print(f"  {label:<38}{s['sharpe']:>6.2f}"
               f"{s['sharpe'] * np.sqrt(len(net) / 12):>6.2f}"
               f"{s['max_drawdown'] * 100:>8.1f}%{turnover(w)['annualized']:>6.1f}x")
-    print("  Reversing halves the Sharpe, worsens the drawdown AND raises turnover.")
-    print("  A fitted pattern would not care which way round it went.")
+
+    # Narrated from THIS run, not from the one this section was written on.
+    # The hardcoded version said "reversing halves the Sharpe", which was true
+    # of v1's full sample (-49%) and of nothing else: the cost is -31% to -36%
+    # on the other three dataset/window combinations.
+    uni, grp, rev = (got[k][0] for k in variants)
+    print(f"  Reversing costs {(1 - rev / grp) * 100:.0f}% of the Sharpe "
+          f"({grp:.2f} -> {rev:.2f}), takes the drawdown from "
+          f"{got['three-speed 18/9/3'][1] * 100:.1f}% to "
+          f"{got['REVERSED (slow<->fast)'][1] * 100:.1f}%, and raises turnover "
+          f"from {got['three-speed 18/9/3'][2]:.1f}x to "
+          f"{got['REVERSED (slow<->fast)'][2]:.1f}x.")
+    print("  A fitted pattern would not care which way round it went. This is"
+          "\n  the robust half of the section: reversal is costly on every"
+          "\n  dataset and window tried (-31% to -49%).")
+    # The fragile half, stated rather than hidden. Whether the GROUPING beats
+    # plain uniform 12m is a different and much weaker claim than whether the
+    # ORDER matters, and on the wider basket it does not survive.
+    if grp > uni + 0.02:
+        print(f"  Here the grouping also beats uniform 12m ({grp:.2f} vs "
+              f"{uni:.2f}).")
+    else:
+        print(f"  Note: the grouping does NOT beat uniform 12m here "
+              f"({grp:.2f} vs {uni:.2f}).")
+        print("  Both results are real. Reversal being costly says the speed"
+              "\n  ORDER carries information; it does not say the three-speed"
+              "\n  grouping earns more than one lookback for everything. On the"
+              "\n  35-market basket it did (+0.19); on 50 markets it does not.")
+    if got["three-speed 18/9/3"][1] > got["uniform 12m (no grouping)"][1]:
+        print(f"  The grouping does still cut the drawdown: "
+              f"{got['three-speed 18/9/3'][1] * 100:.1f}% vs "
+              f"{got['uniform 12m (no grouping)'][1] * 100:.1f}%.")
 
     # ---- 3. would per-asset tuning do better? ----------------------------
     print("\n=== 3. Per-asset tuning: fit on the early period, test on the rest ===")
@@ -129,8 +168,9 @@ def main() -> None:
         t = net.loc[cut:]
         sr = lambda x: x.mean() / x.std() * np.sqrt(12)      # noqa: E731
         print(f"  {label:<38}{npar:>7}{sr(f):>7.2f}{sr(t):>7.2f}")
-    print(f"  Split at {cut:%Y-%m} (72 months after the last market starts, so all")
-    print("  35 are assessable). More parameters fit better and test worse —")
+    print(f"  Split at {cut:%Y-%m} (72 months after the last market starts, so")
+    print(f"  all {len(m.columns)} are assessable). More parameters fit better "
+          f"and test worse —")
     print("  and the fitted speeds agree with the grouping for only "
           f"{sum(1 for a in m.columns if per_asset[a] == TREND_SPEEDS[groups[a]])}"
           f"/{len(m.columns)} markets.")

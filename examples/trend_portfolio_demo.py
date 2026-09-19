@@ -22,9 +22,11 @@ tail (how much margin the account actually has to hold). They differ by about
 Full numbers and caveats: docs/trend-research-log.md
 """
 
+import argparse
+
 import numpy as np
 import pandas as pd
-from _trend_data import load_basket, load_equity_benchmark
+from _trend_data import add_dataset_arg, load_basket, load_equity_benchmark
 
 from portfolio_management.strategy import (
     TimeSeriesMomentum, lookback_by_group, speed_group, volatility_target)
@@ -33,7 +35,9 @@ from portfolio_management.strategy.performance import (
 
 COST = 0.0002
 BLEND = {"slow": (12, 18), "mid": (9, 12), "fast": (3, 6)}
-RF_ANNUAL = 0.018          # rough average cash rate over the ETF overlap
+# The benchmark's risk-free convention travels WITH the benchmark now, from
+# load_equity_benchmark: the SPY ETF is a total return and needs cash removed,
+# v2's SP500 is a futures excess return and must not have it removed twice.
 MARGIN_RATE = 0.05         # futures initial margin as a share of notional
 
 
@@ -59,7 +63,8 @@ def sharpe(x, rf_annual=0.0):
 
 
 def main() -> None:
-    m, hf, ppy, cls, name = load_basket()
+    opts = add_dataset_arg(argparse.ArgumentParser(description=__doc__)).parse_args()
+    m, hf, ppy, cls, name = load_basket(opts.dataset, opts.through, opts.start)
     groups = {a: speed_group(a, cls.get(a, "?")) for a in m.columns}
     gross, W = build(m, hf, ppy, groups)
     unlev = apply_costs(gross, W, cost=COST)
@@ -87,7 +92,7 @@ def main() -> None:
     print("  Sharpe at all; only a time-varying one can.")
 
     # ---- 2. marginal contribution, levered vs not ------------------------
-    spy = load_equity_benchmark()
+    spy, bench_rf = load_equity_benchmark(m)
     if spy is None:
         print("\n(no cached SPY series -- run cache_etf_data_av.py for the"
               " portfolio section)")
@@ -106,9 +111,19 @@ def main() -> None:
     gross_max = exposure.max()
 
     print("\n=== 2. Added to equities: the leverage is the precondition ===")
+    # One window for BOTH blocks. Letting each drop its own missing months put
+    # the two tables on different periods -- the vol-targeted leg needs twelve
+    # months of trailing returns before it exists, so it began a year later --
+    # and the "100% US equity" row, which contains no trend leg at all and must
+    # therefore be identical, came out 0.56 in one block and 0.57 in the other.
+    # The blocks exist to be compared with each other, so they share a period.
+    common = unlev.index.intersection(net15.index).intersection(spy.dropna().index)
+    print(f"  (both blocks on the same {len(common)} months, "
+          f"{common.min():%Y-%m} .. {common.max():%Y-%m})")
     for label, leg, exp in [("trend leg UNLEVERED", unlev, W.abs().sum(axis=1).median()),
                             ("trend leg at 15% vol target", net15, gross_exp)]:
-        j = pd.concat([leg.rename("T"), spy.rename("S")], axis=1).dropna()
+        j = pd.concat([leg.rename("T"), spy.rename("S")],
+                      axis=1).reindex(common).dropna()
         print(f"\n  {label} (leg vol {j['T'].std() * np.sqrt(12) * 100:.1f}%, "
               f"{exp:.1f}x notional per unit of leg capital)")
         print(f"    {'mix':<24}{'SR':>7}{'ann.ret':>10}{'vol':>8}{'maxDD':>9}"
@@ -118,8 +133,10 @@ def main() -> None:
             s = performance_summary(mix, periods_per_year=12)
             notional = (1 - wt) + wt * exp
             margin = wt * exp * MARGIN_RATE
-            tag = "100% SPY" if wt == 0 else f"{int((1 - wt) * 100)}/{int(wt * 100)} SPY/trend"
-            print(f"    {tag:<24}{sharpe(mix, RF_ANNUAL * (1 - wt)):>7.2f}"
+            nm = spy.name
+            tag = (f"100% {nm}" if wt == 0
+                   else f"{int((1 - wt) * 100)}/{int(wt * 100)} {nm}/trend")
+            print(f"    {tag:<24}{sharpe(mix, bench_rf * (1 - wt)):>7.2f}"
                   f"{s['ann_return'] * 100:>9.1f}%{s['ann_vol'] * 100:>7.1f}%"
                   f"{s['max_drawdown'] * 100:>8.1f}%{notional:>9.1f}x{margin * 100:>8.0f}%")
 
@@ -150,7 +167,9 @@ def main() -> None:
           f"correlation {j['T'].corr(j['S']):+.2f}, "
           f"turnover {turnover(lw15)['annualized']:.1f}x")
     print("  Sharpe convention: futures are self-financing so rf=0 is correct for")
-    print(f"  the strategy; SPY has cash subtracted ({RF_ANNUAL * 100:.1f}%/yr), or"
+    print(f"  the strategy; the {spy.name} benchmark has "
+          + (f"cash subtracted ({bench_rf * 100:.1f}%/yr)" if bench_rf
+             else "rf=0 too, being already an excess return") + ", or"
           " its Sharpe")
     print("  would be inflated by the cash return it does not earn.")
 

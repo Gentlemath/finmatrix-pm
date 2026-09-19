@@ -16,9 +16,11 @@ See also:
     trend_portfolio_demo.py  how to size it, and what it adds to a portfolio
 """
 
+import argparse
+
 import numpy as np
 import pandas as pd
-from _trend_data import load_basket
+from _trend_data import add_dataset_arg, load_basket, load_equity_benchmark
 
 from portfolio_management.strategy import (
     TREND_SPEEDS, TimeSeriesMomentum, lookback_by_group, speed_group)
@@ -58,13 +60,17 @@ def blended(m, hf, ppy, groups, **kw):
 
 def show(label, net, w):
     s = performance_summary(net, periods_per_year=12)
+
+    # var(sharpe) = 1/T, Standard Error = 1/ sqrt(T)
+    # t = Sharpe / SE = Sharpe * sqrt(T)
     print(f"  {label:<34}{s['sharpe']:>6.2f}{s['sharpe'] * np.sqrt(len(net) / 12):>6.2f}"
           f"{s['ann_return'] * 100:>8.1f}%{s['ann_vol'] * 100:>7.1f}%"
           f"{s['max_drawdown'] * 100:>9.1f}%{turnover(w)['annualized']:>7.1f}x")
 
 
 def main() -> None:
-    m, hf, ppy, cls, name = load_basket()
+    opts = add_dataset_arg(argparse.ArgumentParser(description=__doc__)).parse_args()
+    m, hf, ppy, cls, name = load_basket(opts.dataset, opts.through, opts.start)
     groups = {a: speed_group(a, cls.get(a, "?")) for a in m.columns}
     counts = pd.Series(groups).value_counts()
     print(f"{name}: {m.shape[0]} months x {m.shape[1]} markets, "
@@ -98,9 +104,18 @@ def main() -> None:
     print("  (long-or-flat can only step aside; only the short leg profits when"
           "\n   stocks and bonds fall together — 1980, 2008, 2022)")
 
-    if "SPY" in m.columns:
-        c = capm(net, m["SPY"].reindex(net.index), periods_per_year=12)
-        print(f"\n  vs SPY: beta {c['beta']:+.2f}, annual alpha {c['alpha_annual'] * 100:+.1f}%")
+    # The benchmark comes from load_equity_benchmark, not from a column lookup:
+    # v2 names its US index SP500, v1's futures basket has none at all, and only
+    # the 10-ETF fallback ever had a column called SPY. Testing for "SPY" here
+    # meant this line never printed on either futures dataset.
+    bench, _ = load_equity_benchmark(m)
+    if bench is not None:
+        b = bench.reindex(net.index).dropna()
+        if len(b) >= 24:
+            c = capm(net.reindex(b.index), b, periods_per_year=12)
+            print(f"\n  vs {bench.name}: beta {c['beta']:+.2f}, "
+                  f"annual alpha {c['alpha_annual'] * 100:+.1f}%  "
+                  f"({len(b)} overlapping months)")
 
     print("\n  Returns look small because portfolio volatility is only "
           f"{performance_summary(net, periods_per_year=12)['ann_vol'] * 100:.1f}% —"
