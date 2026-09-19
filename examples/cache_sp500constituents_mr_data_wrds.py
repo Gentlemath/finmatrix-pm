@@ -2,7 +2,7 @@
 
 Run in YOUR terminal (needs your WRDS account + network):
 
-    python examples/cache_sp500_mr_data_wrds.py
+    python examples/cache_sp500constituents_mr_data_wrds.py
 
 It writes two CSVs to local_data/ so the analysis can run offline afterwards:
 

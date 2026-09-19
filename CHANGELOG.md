@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with a market or characteristic-matched benchmark) — data-source-agnostic and
   unit-tested. Plus `examples/pead_event_study.py`,
   `examples/pead_analyst_study.py`, and `cache_pead_data_wrds.py` /
-  `cache_ibes_data_wrds.py` to fetch inputs.
+  `cache_ibes_analyst_EPS_data_wrds.py` to fetch inputs.
 - **Research logs and background**: `docs/trend-research-log.md` (the speed
   grouping and its falsification, out-of-sample and walk-forward tests, cost and
   frequency sensitivity, and an explicit multiple-testing count),
@@ -90,6 +90,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > `cache_sp500_mr_data_wrds.py`, `cache_global_momentum.py` →
 > `cache_global_momentum_data_wrds.py`, `cache_pead_data.py` →
 > `cache_pead_data_wrds.py`, `cache_ibes_data.py` → `cache_ibes_data_wrds.py`.
+> Renamed again later: `cache_ibes_data_wrds.py` →
+> `cache_ibes_analyst_EPS_data_wrds.py`, and `cache_sp500_mr_data_wrds.py` →
+> `cache_sp500constituents_mr_data_wrds.py`.
 
 ### Added
 - **Packaging**: `pyproject.toml` makes the toolkit pip-installable

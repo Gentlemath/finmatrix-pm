@@ -12,7 +12,7 @@ Question: does the analyst signal + size benchmark produce a cleaner, more
 monotone SUE->drift relation and a decay path closer to the published PEAD?
 
 Reads cached (licensed, gitignored) files written by cache_pead_data_wrds.py and
-cache_ibes_data_wrds.py:
+cache_ibes_analyst_EPS_data_wrds.py:
   comp_earnings.csv, ccm_link.csv, crsp_daily.csv, crsp_monthly.csv,
   ibes_actuals.csv, ibes_consensus.csv, ibes_link.csv
 
