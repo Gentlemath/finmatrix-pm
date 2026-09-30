@@ -1476,3 +1476,153 @@ have had an extraordinary recent run. v1's 0.85 and v2's 0.61 both sit inside th
 band the v1 log itself gives for honest out-of-sample results, **0.61–0.87**. The
 difference is that v1's number leans on five markets a liquidity screen removes
 and v2's leans on none.
+
+---
+
+# Part 12 — What the strategy is worth
+
+Parts 10 and 11 asked whether the speed grouping earns its complexity. This part
+asks the prior question: is the strategy worth holding at all? Its standalone
+Sharpe of 0.84 does not answer that. Two things do — what it does in the years
+equities fall, and what it does to a portfolio that already holds them.
+
+Both sections use the CRSP / Fama-French US market excess return as the equity
+benchmark (`mktrf`, 1926–2026, pulled by
+`examples/cache_equity_benchmark_wrds.py`). It is already an excess return, so no
+cash is subtracted from it — the same convention as the futures legs.
+
+## 12.1 Crisis alpha, and a v1 claim that does not survive
+
+Calendar-year returns in the eight equity-stress years, recommended construction
+against the same construction with no short leg:
+
+| year | long/short | long-or-flat |
+|---|---|---|
+| 1980 | +3.7% | +2.4% |
+| 1987 | +3.0% | +8.4% |
+| 1990 | +2.8% | +2.7% |
+| 1998 | +6.0% | +3.7% |
+| 2002 | +6.2% | +9.3% |
+| 2008 | +9.1% | +7.9% |
+| 2020 | +2.4% | +2.8% |
+| 2022 | +6.7% | +0.2% |
+
+**Positive in all eight, both ways.** That second column is the finding.
+
+### The short leg is not what carries the crises here
+
+The v1 log argues that the short leg is what turns a hedge into a payoff — that
+long-or-flat "can only step aside" while only a short position profits when
+stocks and bonds fall together. On v1 that is visible in the data: its
+long-or-flat construction is **negative in three of the eight years** (1980
+−2.8%, 1990 −7.3%, 1998 −1.6%).
+
+On this basket it is not. Long-or-flat clears every stress year, worst case
++0.2%. Fifty markets with breadth 9.1 contain enough that is *rising* during an
+equity sell-off — 1980's grains, 2022's energy — that the book does not need to
+be short anything to make money.
+
+What the short leg still buys is drawdown, not crisis returns:
+
+| | Sharpe | ann.ret | maxDD |
+|---|---|---|---|
+| long/short | 0.84 | 2.8% | **−12.2%** |
+| long-or-flat | 0.80 | **4.2%** | −23.8% |
+
+Higher return without shorts, twice the drawdown. That is a risk trade, and it is
+the same shape on v1 (0.90 / 0.90, −6.4% against −12.1%). **The v1 conclusion —
+long/short and long-or-flat are different products rather than better and worse —
+holds. The reason given for it does not.**
+
+### By decade
+
+| decade | v2 grouped | v2 uniform 12m | v1 grouped | v1 uniform 12m |
+|---|---|---|---|---|
+| 1973–1978 | 0.41 | 0.34 | — | — |
+| 1979–1989 | 1.37 | 1.14 | 0.72 | 0.69 |
+| 1990–1999 | 1.25 | 1.51 | 1.03 | 0.74 |
+| 2000–2009 | 1.08 | 1.13 | 1.37 | 1.17 |
+| 2010–2019 | 0.41 | 0.24 | 0.74 | 0.36 |
+| 2020–2026 | 0.60 | 0.32 | 0.92 | 0.55 |
+
+Every decade positive on both baskets. v2 wins the 1970s and 1980s — the years it
+was built to reach — and loses the 2000s and 2020s, consistent with §11.3's
+finding that the difference is composition rather than construction.
+
+**The 2011–2019 drought**, when managed-futures funds broadly went sideways:
+
+| | grouped | uniform 12m |
+|---|---|---|
+| v2 | **0.39** | 0.18 |
+| v1 | **0.66** | 0.30 |
+
+The v1 log's strongest practical claim for the grouping is that it roughly
+doubled the drought decade rather than improving the good ones. That **survives
+on v2** — 0.39 against 0.18 is the same ratio — but at half the level. Note the
+tension with §10.5: over five-year blocks the grouping's edge has no stable sign,
+and a decade Sharpe carries a standard error near 0.33. The drought result is
+consistent across both baskets, which is worth more than either number alone,
+but it is not significant in either.
+
+## 12.2 Marginal contribution: the case is the portfolio, not the Sharpe
+
+Nobody holds this instead of equities. The question is what it does when added to
+them. Both blocks below cover the same 615 months, 1975-01 to 2026-03.
+
+**Unlevered** — the trend leg as built, 3.2% volatility:
+
+| mix | Sharpe | ann.ret | vol | maxDD |
+|---|---|---|---|---|
+| 100% US equity | 0.57 | 7.9% | 15.5% | −54.2% |
+| 80/20 | 0.62 | 7.2% | 12.3% | −42.1% |
+| 60/40 | 0.71 | 6.3% | 9.2% | −31.4% |
+
+**Levered to a 15% volatility target:**
+
+| mix | Sharpe | ann.ret | vol | maxDD | notional |
+|---|---|---|---|---|---|
+| 100% US equity | 0.57 | 7.9% | 15.5% | −54.2% | 1.0× |
+| 80/20 | 0.82 | 9.7% | 12.3% | −36.1% | 1.9× |
+| **60/40** | **1.09** | **11.2%** | 10.3% | **−19.9%** | 2.7× |
+
+Sharpe 0.57 → 1.09 and drawdown −54.2% → −19.9%, with the return slightly
+*higher* than holding equities alone. What makes it work is beta **−0.16** to
+equities, not the strategy's own 0.84.
+
+**The leverage is a precondition, not a detail.** Unlevered, 40% in trend gives up
+a fifth of the return and buys much less: a 3% volatility sleeve cannot
+contribute enough risk to move a 15% volatility portfolio, so the result is
+mostly equities plus cash. The claim above is a claim about the *levered* leg.
+
+### Margin, and why the median is the wrong number
+
+Gross notional in the trend leg, per unit of leg capital: median **5.3×**, 95th
+percentile **13.7×**, worst **19.9×**.
+
+| allocation | margin at median | at 95th pct | at worst |
+|---|---|---|---|
+| 20% in trend | 5% | 14% | 20% |
+| 40% in trend | 11% | 27% | 40% |
+
+Size the account off the tail. Exposure peaks when realised volatility has been
+low, which is exactly when the estimator is about to be wrong — the worst moment
+to be forced out by a margin call. The v1 log's *Risk, margin and cost* section
+treats this properly and has not been redone here.
+
+### Against v1
+
+On each basket's own full sample the levered 60/40 scores **1.09 (v2, 615
+months)** against **1.03 (v1, 547 months)** — but those are different windows.
+Matched at 1979-12 to 2024-12, 517 months, they are **1.09 (v2)** and **1.10
+(v1)**: indistinguishable.
+
+This is the cleanest v1-versus-v2 comparison in this log, because the equity
+benchmark is external to both baskets. Part 11's split and walk-forward compare
+two baskets against themselves; this compares both against the same US market
+series over the same months.
+
+**Two limits.** Neither number is out of sample — the construction was chosen
+with the whole period visible, and §11.1 shows what that is worth. And every
+drawdown here is month-end, so the true intramonth lows are deeper;
+`examples/trend_intramonth_demo.py` measures that on v1 and does not yet take
+`--dataset`.
