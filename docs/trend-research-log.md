@@ -1308,8 +1308,11 @@ requirement in absolute terms, not against a high-water mark. The worst
 start-to-trough months were 2019-09 (−13.1%), 2001-11 (−11.7%), 2001-04 (−11.0%)
 and 2018-02 (−10.9%).
 
-Reproduce with `examples/trend_intramonth_demo.py`; pass a month
-(`... 2020-03`) to print that month's daily NAV path.
+Reproduce with `examples/trend_intramonth_demo.py --dataset 1`; pass a month
+(`... --dataset 1 2020-03`) to print that month's daily NAV path. **The flag is
+required.** The demo takes the newest basket cached on disk when none is given,
+so once v2 was built an unflagged run stopped reproducing this table — the
+numbers above are v1's and are confirmed unchanged under `--dataset 1`.
 
 ### Margin: notional-based models overstate it by 3–8×
 

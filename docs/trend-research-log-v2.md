@@ -1623,6 +1623,69 @@ series over the same months.
 
 **Two limits.** Neither number is out of sample — the construction was chosen
 with the whole period visible, and §11.1 shows what that is worth. And every
-drawdown here is month-end, so the true intramonth lows are deeper;
-`examples/trend_intramonth_demo.py` measures that on v1 and does not yet take
-`--dataset`.
+drawdown in this part is measured month-end, so the true lows inside each month
+are deeper. §12.3 measures how much deeper.
+
+## 12.3 Intra-month: where the monthly series understates the risk
+
+Positions are set at each month end and held, so the path inside a month is not
+something the book can respond to — but futures mark to market daily, and it is
+the intra-month equity that a margin desk tests. Both measures below are on the
+daily NAV path within each calendar month, **for the trend leg levered to its
+own 15% volatility target** — not for the 60/40 mix of §12.2.
+
+| v2 (615 months) | median | 5th pct | 1st pct | worst |
+|---|---|---|---|---|
+| peak-to-trough (a drawdown) | −2.81% | −8.29% | −11.79% | −17.16% |
+| **start-to-trough** (loss from the rebalance) | **−1.28%** | −7.37% | −10.76% | **−16.74%** |
+
+| v1 (547 months) | median | 5th pct | 1st pct | worst |
+|---|---|---|---|---|
+| peak-to-trough | −2.78% | −8.02% | −11.48% | −13.99% |
+| **start-to-trough** | **−1.37%** | −6.89% | −10.61% | **−13.14%** |
+
+The v1 log's distinction between the two carries over unchanged and is not
+repeated here: for margin only **start-to-trough** matters, because a call tests
+equity against the requirement in absolute terms rather than against a
+high-water mark.
+
+**The body of the distribution is the same on both baskets and the tail is not.**
+Median, 5th and 1st percentiles agree to within 0.5 points. The worst month
+drops from −13.1% on v1 to −16.7% on v2.
+
+**Month by month the two disagree, in both directions.** Of the 26 months that
+rank among either basket's 20 worst, v2 is more than 3 points worse in six and
+more than 3 points better in three; the median difference is zero, and splitting
+at 2000 shows no era pattern (median −0.1 before, +0.1 after).
+
+| month | v1 | v2 | |
+|---|---|---|---|
+| 1985-03 | −0.1% | −10.1% | −10.0 |
+| 1999-01 | −1.9% | −9.9% | −8.0 |
+| 2007-08 | −9.2% | −16.7% | −7.6 |
+| 1981-07 | −10.4% | −4.9% | +5.5 |
+| 1994-01 | −8.2% | −3.8% | +4.4 |
+| 1989-06 | −8.9% | −4.8% | +4.1 |
+
+August 2007 — the quant deleveraging — is the largest divergence and is what
+sets v2's worst-ever figure, but it is not special in kind: 1985-03 is as large
+and 1981-07 nearly as large pointing the other way. An earlier draft of this
+section claimed one month explained the whole difference; that was checked
+against two months and is wrong.
+
+**What this is not is a construction effect.** The same code produced both
+columns. A different set of markets is caught differently by any given month —
+§11.3's composition finding, appearing month by month. What survives the
+disagreement is the shape of the distribution: medians and percentiles match,
+and only the single worst month is meaningfully worse on v2.
+
+**This cuts against §12.2's drawdown numbers.** The levered 60/40's −19.9% is a
+month-end figure. The leg that produces it spent one month 16.7% below its own
+rebalance level, and the monthly series cannot show that.
+
+Reproduce with `examples/trend_intramonth_demo.py --dataset 1|2`; pass a month
+(`... 2020-03`) for that month's daily path. (The demo gained `--dataset` for
+this section, and a display line that compared the month's low to its high
+without checking which came first was fixed at the same time — it overstated the
+fall in any month whose low preceded its high, 2020-03 among them. No table in
+either log was affected.)
