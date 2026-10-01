@@ -88,8 +88,8 @@ def load_basket(version=None, through=None, start=None):
     if version is not None:
         raise SystemExit(
             f"dataset v{version} not cached. Run:\n"
-            f"  python examples/cache_futures_data{'_v2' if version == 2 else ''}"
-            f"_wrds.py")
+            f"  python examples/cache/futures_data"
+            f"{'_v2' if version == 2 else ''}_wrds.py")
 
     etf_m = D / "etf_returns_monthly.csv"
     if etf_m.exists():
@@ -103,9 +103,9 @@ def load_basket(version=None, through=None, start=None):
 
     raise SystemExit(
         "No cached basket found. Run one of:\n"
-        "  python examples/cache_futures_data_v2_wrds.py  (51 futures, needs WRDS)\n"
-        "  python examples/cache_futures_data_wrds.py     (35 futures, needs WRDS)\n"
-        "  python examples/cache_etf_data_av.py           (10 ETFs, needs an API key)")
+        "  python examples/cache/futures_data_v2_wrds.py  (51 futures, needs WRDS)\n"
+        "  python examples/cache/futures_data_wrds.py     (35 futures, needs WRDS)\n"
+        "  python examples/cache/etf_data_av.py           (10 ETFs, needs an API key)")
 
 
 def add_dataset_arg(parser):
@@ -157,7 +157,7 @@ def load_equity_benchmark(monthly=None):
     ETF in 2006. It is also independent of the futures dataset, which matters
     for a regression whose whole point is to compare the two.
 
-    Run examples/cache_equity_benchmark_wrds.py to create the mktrf file.
+    Run examples/cache/equity_benchmark_wrds.py to create the mktrf file.
     """
     p = D / "equity_benchmark_monthly.csv"
     if p.exists():

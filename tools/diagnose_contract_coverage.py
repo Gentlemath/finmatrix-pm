@@ -60,7 +60,7 @@ def sweep() -> None:
     print(f"\n{len(hit)} of {len(df)} classes affected.")
     if len(hit):
         labels = ",".join(sorted(hit["label"]))
-        print("rebuild with:\n  python examples/cache_futures_data_v2_wrds.py"
+        print("rebuild with:\n  python examples/cache/futures_data_v2_wrds.py"
               f" --refresh --only {labels}")
 
 

@@ -30,7 +30,7 @@ here; the underlying data is licensed and lives in the gitignored `local_data/`.
 - **Costs**: net throughout. Futures at **2 bps per side** (realistic for liquid
   contracts); ETFs at 10 bps. Cost sensitivity is reported below because it
   turned out to matter more than most parameters.
-- **Reproduce**: `examples/cache_futures_data_wrds.py`, then the configurations
+- **Reproduce**: `examples/cache/futures_data_wrds.py`, then the configurations
   below. Basket definition and all Datastream pitfalls live in
   `portfolio_management/dataloader/ds_futures.py`.
 - **The basket shrinks at the end of the sample** — 35 markets in 2010, 33 in

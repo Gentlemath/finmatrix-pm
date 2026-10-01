@@ -94,7 +94,7 @@ def main() -> None:
     # ---- 2. marginal contribution, levered vs not ------------------------
     spy, bench_rf = load_equity_benchmark(m)
     if spy is None:
-        print("\n(no cached SPY series -- run cache_etf_data_av.py for the"
+        print("\n(no cached SPY series -- run cache/etf_data_av.py for the"
               " portfolio section)")
         return
     net15, lev15, lw15 = levered[0.15]

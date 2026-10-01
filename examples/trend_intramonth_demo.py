@@ -125,8 +125,8 @@ def main() -> None:
     m, hf, ppy, cls, name = load_basket(opts.dataset, opts.through, opts.start)
     if hf is None or ppy != 252:
         raise SystemExit("This demo needs a DAILY futures panel; run "
-                         "examples/cache_futures_data_v2_wrds.py, or "
-                         "examples/cache_futures_data_wrds.py for v1")
+                         "examples/cache/futures_data_v2_wrds.py, or "
+                         "examples/cache/futures_data_wrds.py for v1")
     groups = {a: speed_group(a, cls.get(a, "?")) for a in m.columns}
     daily, net_m, lw = build_daily_path(m, hf, ppy, groups)
     print(f"{name}: {len(daily):,} days, {daily.index.min():%Y-%m} .. "

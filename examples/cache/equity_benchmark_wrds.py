@@ -3,8 +3,8 @@
 Run in YOUR terminal (needs your WRDS account). Licensed data -- local_data/ is
 gitignored; do not commit the output.
 
-    python examples/cache_equity_benchmark_wrds.py --probe      # look, pull nothing
-    python examples/cache_equity_benchmark_wrds.py              # pull and save
+    python examples/cache/equity_benchmark_wrds.py --probe      # look, pull nothing
+    python examples/cache/equity_benchmark_wrds.py              # pull and save
 
 WHY THIS EXISTS. Both equity benchmarks available so far start too late:
 

@@ -2,7 +2,7 @@
 
 Why not yfinance? Yahoo Finance is geo-blocked in mainland China (HTTP 403) and
 rate-limits the university VPN's shared exit address (429), so
-``cache_etf_data.py`` cannot run from this connection. Alpha Vantage is
+``cache/etf_data.py`` cannot run from this connection. Alpha Vantage is
 reachable and its TIME_SERIES_MONTHLY_ADJUSTED endpoint is free.
 
 Adjusted close includes dividends, which matters here: three of the ten holdings

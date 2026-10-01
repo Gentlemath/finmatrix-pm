@@ -3,16 +3,16 @@
 Run in YOUR terminal (needs your WRDS account). Licensed data -- local_data/ is
 gitignored; do not commit the output.
 
-    python examples/cache_futures_data_v2_wrds.py
-    python examples/cache_futures_data_v2_wrds.py --only GOLD,SILVER
-    python examples/cache_futures_data_v2_wrds.py --assemble-only
-    python examples/cache_futures_data_v2_wrds.py --refresh          # re-pull
+    python examples/cache/futures_data_v2_wrds.py
+    python examples/cache/futures_data_v2_wrds.py --only GOLD,SILVER
+    python examples/cache/futures_data_v2_wrds.py --assemble-only
+    python examples/cache/futures_data_v2_wrds.py --refresh          # re-pull
 
 This does NOT overwrite the previous dataset. It writes ``*_v2`` files beside
 it so the two can be compared, because the two are built differently and the
 difference is measurable (see below).
 
-Successor to ``cache_futures_data_wrds.py``, which reads Datastream's own
+Successor to ``cache/futures_data_wrds.py``, which reads Datastream's own
 continuous series for all 35 markets. Half of this basket cannot be built that
 way: the continuous-series tables stopped carrying CME Group (COMEX 2022-11,
 CBOT 2025-04, NYMEX 2026-04) and the live classes have no continuous series at

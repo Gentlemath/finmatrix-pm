@@ -75,7 +75,7 @@ starts only in 2006 — so v1 and v2 were being scored against different
 benchmarks over different windows, and their equity drawdowns disagreed by
 twenty points for that reason alone. Both are now measured against the CRSP /
 Fama-French US market excess return (1926–2026, `mktrf`), pulled by
-`examples/cache_equity_benchmark_wrds.py`. It is already an excess return, so
+`examples/cache/equity_benchmark_wrds.py`. It is already an excess return, so
 no cash is subtracted from it; the ETF, being a total return, still is. With
 the benchmark and window matched, the two datasets give the same portfolio
 result — 60/40 levered scores **1.10 (v1)** against **1.09 (v2)** over the
@@ -1488,7 +1488,7 @@ equities fall, and what it does to a portfolio that already holds them.
 
 Both sections use the CRSP / Fama-French US market excess return as the equity
 benchmark (`mktrf`, 1926–2026, pulled by
-`examples/cache_equity_benchmark_wrds.py`). It is already an excess return, so no
+`examples/cache/equity_benchmark_wrds.py`). It is already an excess return, so no
 cash is subtracted from it — the same convention as the futures legs.
 
 ## 12.1 Crisis alpha, and a v1 claim that does not survive

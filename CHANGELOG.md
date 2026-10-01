@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   records the three table facts that silently corrupt the data if ignored — the
   stacked-long `_name_` layout, the absence of back-adjustment (a directional
   −0.55%/roll on the Bund) and non-unique `dsmnem` with wildly varying coverage
-  across roll variants. `examples/cache_futures_data_wrds.py` writes daily and
+  across roll variants. `examples/cache/futures_data_wrds.py` writes daily and
   monthly panels.
 - **Trend demos**, one point each: `examples/trend_demo.py` (the construction and
   what each design choice is worth), `examples/trend_speed_demo.py` (why speeds
@@ -57,8 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pre-announcement consensus) and `event_car` (announcement- vs drift-window CARs
   with a market or characteristic-matched benchmark) — data-source-agnostic and
   unit-tested. Plus `examples/pead_event_study.py`,
-  `examples/pead_analyst_study.py`, and `cache_pead_data_wrds.py` /
-  `cache_ibes_analyst_EPS_data_wrds.py` to fetch inputs.
+  `examples/pead_analyst_study.py`, and `cache/pead_data_wrds.py` /
+  `cache/ibes_analyst_EPS_data_wrds.py` to fetch inputs.
 - **Research logs and background**: `docs/trend-research-log.md` (the speed
   grouping and its falsification, out-of-sample and walk-forward tests, cost and
   frequency sensitivity, and an explicit multiple-testing count),
@@ -66,9 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actually implement this), and the two strategy surveys
   `docs/strategy-research.md` / `docs/strategy-research-2.md` that motivated the
   build.
-- **Data-pull scripts**: `examples/cache_futures_data_wrds.py` (Datastream
-  futures), `examples/cache_etf_data.py` (ETF basket from CRSP via WRDS) and
-  `examples/cache_etf_data_av.py` (Alpha Vantage variant — monthly or weekly
+- **Data-pull scripts**: `examples/cache/futures_data_wrds.py` (Datastream
+  futures), `examples/cache/etf_data.py` (ETF basket from CRSP via WRDS) and
+  `examples/cache/etf_data_av.py` (Alpha Vantage variant — monthly or weekly
   adjusted, resumes a partial run, retries through throttles — for networks
   where Yahoo Finance is unreachable).
 - **`tools/`**: WRDS exploration and diagnostics kept out of `examples/`.
@@ -91,7 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the live classes have no continuous series at all. `pick_held` chooses the
   contract by open interest inside a six-month window; `contract_returns` takes
   returns within one contract so the roll gap — term structure, not a return —
-  never enters. `examples/cache_futures_data_v2_wrds.py` writes the panels and
+  never enters. `examples/cache/futures_data_v2_wrds.py` writes the panels and
   resumes per market. Two silent defects found on the way: missing `lasttrddate`
   truncated wheat and lean hogs by thirty years, and uncleaned prices left three
   ×10,000 spikes that put gasoline's annualised volatility at 8033%.
@@ -99,7 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dicts passed to `speed_group(..., grouping=)`, so a re-learned grouping and the
   reversed one used to falsify it are alternative *values* rather than branches.
   `GROUPING_V2` adds livestock (absent from v1) and moves platinum to slow.
-- **A proper equity benchmark** (`examples/cache_equity_benchmark_wrds.py`):
+- **A proper equity benchmark** (`examples/cache/equity_benchmark_wrds.py`):
   CRSP index returns joined to Fama-French, giving the US market excess return
   from 1926 where the SPY ETF began in 2006 and the S&P futures in 1982. The
   loader returns `(series, rf_annual)` so the cash convention travels with the
@@ -148,7 +148,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > `cache_pead_data_wrds.py`, `cache_ibes_data.py` → `cache_ibes_data_wrds.py`.
 > Renamed again later: `cache_ibes_data_wrds.py` →
 > `cache_ibes_analyst_EPS_data_wrds.py`, and `cache_sp500_mr_data_wrds.py` →
-> `cache_sp500constituents_mr_data_wrds.py`.
+> `cache_sp500constituents_mr_data_wrds.py`. All nine have since moved into
+> `examples/cache/` with the `cache_` prefix dropped, so the current path for
+> any of them is `examples/cache/<name minus the prefix>.py`.
 
 ### Added
 - **Packaging**: `pyproject.toml` makes the toolkit pip-installable

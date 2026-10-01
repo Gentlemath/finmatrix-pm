@@ -6,7 +6,7 @@
 
 All construction logic and the market registry live in
 ``portfolio_management.dataloader.ds_contracts`` so that this tool and
-``examples/cache_futures_data_v2_wrds.py`` cannot drift apart -- an earlier
+``examples/cache/futures_data_v2_wrds.py`` cannot drift apart -- an earlier
 duplicate of BASKET in two files had already diverged before it was noticed.
 
 What to read in the output:

@@ -7,7 +7,7 @@ It queries information_schema directly rather than the wrds package's
 list_libraries(), which needs the very slow load_library_list() metadata pass.
 
 Trend-following (Moskowitz-Ooi-Pedersen) is built on futures across equity-index,
-bond, currency and commodity markets. The ETF basket in cache_etf_data.py is a
+bond, currency and commodity markets. The ETF basket in cache/etf_data.py is a
 proxy for that; real futures would extend BOTH constraints the trend research log
 identifies — a 20.5-year span (ETFs did not exist earlier) and an effective
 breadth of only 3.4.

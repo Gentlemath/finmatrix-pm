@@ -3,8 +3,26 @@
 A quantitative research toolkit covering the whole path: **data → exploration →
 time-series modeling → strategy → honest measurement.**
 
-Three strategy families are implemented and documented — cross-sectional
-momentum, post-earnings-announcement drift, and cross-asset trend-following.
+These modules are the executable layer behind the agent skills used in the
+**FinMatrix labs**: a skill states the research task, this code runs it. That
+sets the bar for the code — a skill cannot check its own work, so every module
+here is unit-tested on synthetic data, and every result in [`docs/`](docs/)
+carries the evidence that produced it.
+
+Three strategy families are implemented and documented:
+
+- **Cross-sectional momentum** — rank markets against each other and hold the
+  winners against the losers.
+  [`momentum.py`](portfolio_management/strategy/momentum.py) ·
+  [research log](docs/momentum-research-log.md)
+- **Post-earnings-announcement drift** — the tendency of a stock to keep moving
+  in the direction of an earnings surprise for weeks after the announcement.
+  [`pead.py`](portfolio_management/strategy/pead.py) ·
+  [research log](docs/pead-research-log.md)
+- **Cross-asset trend-following** — position each market on the sign of its
+  *own* trailing return, sized by inverse volatility, at a speed set by asset
+  class. [`trend.py`](portfolio_management/strategy/trend.py) ·
+  [v1](docs/trend-research-log.md) · [v2](docs/trend-research-log-v2.md)
 
 The code is the smaller half of this repository. The larger half is
 [`docs/`](docs/), where every result is recorded with its evidence, its error
@@ -32,7 +50,8 @@ portfolio_management/         the installable package
   eda/                        distributions, stationarity, autocorrelation
   tsm/                        GARCH family and regime detection
   strategy/                   momentum, pead, trend, performance, universe
-examples/                     demos, studies, and cache_* data pulls
+examples/                     demos and studies
+  cache/                      one-off data pulls into local_data/
 tools/                        WRDS/Datastream discovery and diagnostics
 tests/                        pytest, network-free
 docs/                         research logs and surveys
@@ -73,7 +92,7 @@ and drops delisted stocks, which biases any momentum backtest upward. CRSP gives
 point-in-time S&P 500 membership (`crsp.msp500list_v2`) and returns that already
 include the delisting return (`crsp.msf_v2`), removing both leaks at once.
 
-WRDS data is licensed. The `cache_*.py` scripts in `examples/` pull it into
+WRDS data is licensed. The scripts in `examples/cache/` pull it into
 `local_data/`, which is gitignored and must stay that way — only aggregate
 results are committed.
 
