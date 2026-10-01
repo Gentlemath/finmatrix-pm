@@ -1,7 +1,8 @@
 """What the monthly backtest hides: the daily path inside each month.
 
-    python examples/trend_intramonth_demo.py            # worst months by intra-month risk
-    python examples/trend_intramonth_demo.py 2020-03    # the daily path of one month
+    python examples/trend_intramonth_demo.py                # worst months by intra-month risk
+    python examples/trend_intramonth_demo.py 2020-03        # the daily path of one month
+    python examples/trend_intramonth_demo.py --dataset 1    # the v1 basket instead
 
 Positions are formed at each month end and held unchanged for the whole month —
 the signal is a 12-to-18-month lookback and the rebalance is monthly, so within
@@ -10,9 +11,10 @@ the equity curve inside a month is what actually determines margin calls.
 
 Two DIFFERENT measures get confused here, and the demo reports both:
 
-  peak-to-trough   worst drop from the highest point reached INSIDE the month.
-                   This is what a margin desk watches, because equity is marked
-                   from its high-water mark.
+  peak-to-trough   worst drop from a RUNNING high inside the month -- the
+                   high-water mark as of each day, not the month's best day,
+                   which may come later. This is what a margin desk watches,
+                   because equity is marked from its high-water mark.
 
   start-to-trough  worst cumulative loss measured from the month's opening
                    value. This is what "how much was I down on the month" means.
@@ -21,10 +23,10 @@ They diverge whenever the book rallies before falling: a month that gains 8% and
 then gives back 10% has a 10% peak-to-trough but only a 2.7% start-to-trough.
 """
 
-import sys
+import argparse
 
 import pandas as pd
-from _trend_data import load_basket
+from _trend_data import add_dataset_arg, load_basket
 
 from portfolio_management.strategy import (
     TimeSeriesMomentum, lookback_by_group, speed_group, volatility_target)
@@ -99,25 +101,40 @@ def show_month(daily, ym):
     print(f"  start-to-trough   {(nav.min() - 1) * 100:+.2f}%"
           f"   (worst cumulative loss on the month)")
     print(f"  peak-to-trough    {(nav / peak - 1).min() * 100:+.2f}%"
-          f"   (worst drop from the intra-month high)")
+          f"   (worst drop from a running high)")
+    # The low is not necessarily AFTER the high -- in 2020-03 it came 28 days
+    # before it -- so nav.min()/nav.max() can describe a fall that never
+    # happened. Report the high as its own fact, and take the drawdown from the
+    # running peak, which is the number the margin line above quotes.
     hi = nav.idxmax()
-    print(f"  intra-month high  {nav.max():.4f} on {hi:%Y-%m-%d}, "
-          f"then {(nav.min() / nav.max() - 1) * 100:+.2f}% to the low")
+    dd = nav / peak - 1.0
+    lo = dd.idxmin()
+    pk = nav.loc[:lo].idxmax()
+    print(f"  intra-month high  {nav.max():.4f} on {hi:%Y-%m-%d}")
+    print(f"  worst drawdown    {nav[pk]:.4f} on {pk:%Y-%m-%d} -> "
+          f"{nav[lo]:.4f} on {lo:%Y-%m-%d}   ({dd.min() * 100:+.2f}%)")
 
 
 def main() -> None:
-    m, hf, ppy, cls, name = load_basket()
+    parser = add_dataset_arg(argparse.ArgumentParser(description=__doc__))
+    # The month stays positional so `... 2020-03` still works, but it has to be
+    # declared now: argparse rejects a bare positional once flags exist.
+    parser.add_argument("month", nargs="?", default=None,
+                        help="inspect one month's daily path, YYYY-MM")
+    opts = parser.parse_args()
+    m, hf, ppy, cls, name = load_basket(opts.dataset, opts.through, opts.start)
     if hf is None or ppy != 252:
-        raise SystemExit("This demo needs a DAILY panel; run "
-                         "examples/cache_futures_data_wrds.py")
+        raise SystemExit("This demo needs a DAILY futures panel; run "
+                         "examples/cache_futures_data_v2_wrds.py, or "
+                         "examples/cache_futures_data_wrds.py for v1")
     groups = {a: speed_group(a, cls.get(a, "?")) for a in m.columns}
     daily, net_m, lw = build_daily_path(m, hf, ppy, groups)
     print(f"{name}: {len(daily):,} days, {daily.index.min():%Y-%m} .. "
           f"{daily.index.max():%Y-%m}")
     print("positions held constant within each month, no intra-month trading")
 
-    if len(sys.argv) > 1:
-        show_month(daily, sys.argv[1])
+    if opts.month:
+        show_month(daily, opts.month)
         return
 
     mm = month_measures(daily)
